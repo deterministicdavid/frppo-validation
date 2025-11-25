@@ -1,0 +1,11 @@
+# Virtual envs
+/venv
+
+# Logs and other runtime artefacts
+logs*/
+videos*/
+
+
+# Other
+MUJOCO_LOG.TXT
+*~
