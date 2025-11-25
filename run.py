@@ -384,7 +384,7 @@ if __name__ == "__main__":
                 run_config["train"]["run_id"] = f"{original_run_id}_run_{run_idx}_{device_idx}_gpu_{device.type}_{device.index}"
                 run_config["logging"][
                     "name_prefix"
-                ] = f"{original_prefix}_{device_idx}_gpu_{device.index}"  # this is where the train model gets saved
+                ] = f"{original_prefix}_{original_run_id}_{run_idx}_run_{device_idx}_gpu_{device.index}"  # this is where the train model gets saved
 
                 # 4. Create and start the process
                 p = mp.Process(target=train, args=(run_config, device, seed))
