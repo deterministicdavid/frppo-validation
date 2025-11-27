@@ -1,0 +1,33 @@
+# config.yaml
+# Configuration for PPO CarRacing training
+
+# --- General Env ---
+env_name: "BreakoutNoFrameskip-v4"
+n_stack: 4
+
+# --- Training Parameters ---
+train:
+  algo: "FRPPO"
+  run_id: "2" # for tensorboard logging
+  policy: "default" # either "own" or "default"
+  n_envs: 8 # Default number of parallel environments
+  n_steps: 128 # Following the 37 implementation details of Proximal Policy Optimization
+  batch_size: 256 # They say batch size nminibatches = 4 so 8 x 128 / 4 = 256
+  total_timesteps: 10000000
+  ent_coef: 0.01 # Again following the 37 implementation details of Proximal Policy Optimization
+  decay_lr: true # And same again
+  fr_tau_penalty: 0.01
+  fr_scale_by_adv: true
+
+# --- Logging & Saving ---
+logging:
+  log_dir: "./logs_breakout/"
+  name_prefix: "frppo2_breakout_latest"
+  checkpoint_save_freq: 10000 # OverwriteCheckpointCallback save frequency
+
+# --- Visualization ---
+visualize:
+  video_folder: "videos_breakout/"
+  deterministic: true
+
+

@@ -3,9 +3,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import glob
 import os
+import argparse
 
 def load_runs(pattern, metric="rollout/ep_rew_mean", step="time/total_timesteps"):
     dfs = []
+    if len(glob.glob(pattern)) == 0:
+        raise ValueError(f"Dir indicated by {pattern} doesn't exist.")
     for folder in glob.glob(pattern):
         csv_path = os.path.join(folder, "progress.csv")
         if os.path.exists(csv_path):
@@ -13,6 +16,8 @@ def load_runs(pattern, metric="rollout/ep_rew_mean", step="time/total_timesteps"
             if step in df.columns and metric in df.columns:
                 df = df[[step, metric]].dropna()
                 dfs.append(df)
+        
+        
     return dfs
 
 def interpolate_runs(dfs, num_points=500):
@@ -31,45 +36,62 @@ def interpolate_runs(dfs, num_points=500):
 
     return x_common, np.vstack(interpolated)
 
-# ----------------------------
-# LOAD PPO RUNS
-# ----------------------------
-ppo_runs = load_runs("./logs_breakout/PPO_0_*")
 
-# LOAD FRPPO RUNS
-frppo_runs = load_runs("./logs_breakout/FRPPO_0_*")
+def main():
+    parser = argparse.ArgumentParser()
 
-# ----------------------------
-# INTERPOLATE
-# ----------------------------
-x_ppo, y_ppo = interpolate_runs(ppo_runs)
-x_frppo, y_frppo = interpolate_runs(frppo_runs)
+    parser.add_argument("--envname", type=str, required=True,
+                        help="Environment name (breakout, beamrider, etc.)")
 
-# Compute mean + std
-ppo_mean = y_ppo.mean(axis=0)
-ppo_std  = y_ppo.std(axis=0)
+    parser.add_argument("--outfile", type=str, required=True,
+                        help="Output PDF filename")
 
-frppo_mean = y_frppo.mean(axis=0)
-frppo_std  = y_frppo.std(axis=0)
+    parser.add_argument("--patterns", nargs="+", required=True,
+                        help="List of directory prefixes, e.g. PPO_0 FRPPO_0 FRPPO_1")
 
-# ----------------------------
-# PLOTTING
-# ----------------------------
-plt.figure(figsize=(12,6))
+    parser.add_argument("--labels", nargs="+", required=True,
+                        help="List of labels, same length/order as --patterns")
 
-# PPO curve
-plt.plot(x_ppo, ppo_mean, label="PPO", linewidth=2)
-plt.fill_between(x_ppo, ppo_mean - ppo_std, ppo_mean + ppo_std, alpha=0.2)
+    args = parser.parse_args()
 
-# FRPPO curve
-plt.plot(x_frppo, frppo_mean, label="FRPPO", linewidth=2)
-plt.fill_between(x_frppo, frppo_mean - frppo_std, frppo_mean + frppo_std, alpha=0.2)
+    if len(args.patterns) != len(args.labels):
+        raise ValueError("patterns and labels must be the same length")
 
-plt.xlabel("Timesteps")
-plt.ylabel("Episode Reward")
-plt.title("Breakout Training Performance: PPO vs FRPPO (mean ± std)")
-plt.legend()
-plt.grid(True)
-plt.tight_layout()
-plt.savefig("ppo_vs_frppo.pdf", format="pdf")
-plt.close()
+    log_root = f"./logs_{args.envname}"
+    plt.figure(figsize=(12,6))
+
+
+    for pattern, label in zip(args.patterns, args.labels):
+        # Glob pattern
+        full_pattern = f"{log_root}/{pattern}*"
+
+        # Load
+        dfs = load_runs(full_pattern)
+
+        # Interpolate
+        x, y = interpolate_runs(dfs)
+
+        # Mean and std
+        mean = y.mean(axis=0)
+        std = y.std(axis=0)
+
+        # Plot
+        plt.plot(x, mean, label=label, linewidth=2)
+        plt.fill_between(x, mean - std, mean + std, alpha=0.2)
+
+    plt.xlabel("Timesteps")
+    plt.ylabel("Episode Reward")
+    plt.title(f"Training Curves on {args.envname.capitalize()}")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+
+    # Save and close
+    plt.savefig(args.outfile, format="pdf")
+    plt.close()
+
+    print(f"Saved plot to {args.outfile}")
+
+
+if __name__ == "__main__":
+    main()
