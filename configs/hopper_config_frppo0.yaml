@@ -8,7 +8,7 @@ n_stack: 0
 
 # --- Training Parameters ---
 train:
-  algo: "PPO"
+  algo: "FRPPO"
   run_id: "0" # for tensorboard logging
   policy: "default" # either "own" or "default"
   n_envs: 1 # Recommended for Mujoco
@@ -27,7 +27,7 @@ train:
 # --- Logging & Saving ---
 logging:
   log_dir: "./logs_hopper/"
-  name_prefix: "ppo_hopper_latest"
+  name_prefix: "frppo0_hopper_latest"
   checkpoint_save_freq: 10000 # OverwriteCheckpointCallback save frequency
 
 # --- Visualization ---

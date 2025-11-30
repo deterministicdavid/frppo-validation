@@ -26,8 +26,8 @@ train:
 
 # --- Logging & Saving ---
 logging:
-  log_dir: "./logs_hopper/"
-  name_prefix: "ppo_hopper_latest"
+  log_dir: "./logs_dbg_hopper/"
+  name_prefix: "ppo_hopper_latest_dbg"
   checkpoint_save_freq: 10000 # OverwriteCheckpointCallback save frequency
 
 # --- Visualization ---

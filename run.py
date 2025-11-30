@@ -1,4 +1,6 @@
 import os
+os.environ["MUJOCO_GL"] = "egl"
+
 import multiprocessing as mp
 import argparse
 import copy
@@ -30,6 +32,7 @@ import random
 import yaml
 
 from run_utils import (
+    ForceFloat32Wrapper,
     OverwriteCheckpointCallback,
     select_free_gpu_or_fallback,
     get_free_cuda_gpus,
@@ -215,7 +218,7 @@ def train(config: dict, assigned_device: torch.device, seed: int):
     env.close()
 
 
-def vizualize(config: dict, name_override=None):
+def vizualize(config: dict, model_path, scale_up=False):
     print("Starting visualization...")
     MAX_STEPS = 10_000
 
@@ -224,14 +227,12 @@ def vizualize(config: dict, name_override=None):
     env_is_atari = config.get("env_is_atari", True)
     n_stack = config["n_stack"]
     video_folder = config["visualize"]["video_folder"]
-    log_dir = config["logging"]["log_dir"]
-    if name_override == "":
-        name_prefix = config["logging"]["name_prefix"]
-    else:
-        name_prefix = name_override
+    
     deterministic_actions = config["visualize"]["deterministic"]
     seed = None  # random visualisations
-    model_path = os.path.join(log_dir, f"{name_prefix}.zip")
+    
+    
+    
 
     os.makedirs(video_folder, exist_ok=True)
 
@@ -256,7 +257,8 @@ def vizualize(config: dict, name_override=None):
         print("Default environment detected.")
         # Non-Atari env
         # env = gym.make(env_name, render_mode="rgb_array")
-        env = make_vec_env(env_name, n_envs=1)
+        env = make_vec_env(env_name, n_envs=1, wrapper_class=ForceFloat32Wrapper)
+        
 
     env = VecVideoRecorder(
         venv=env,
@@ -273,16 +275,16 @@ def vizualize(config: dict, name_override=None):
 
     model = None
     if learning_algo == "FRPPO":
-        model = FRPPO.load(model_path, env=env)
+        model = FRPPO.load(model_path)
     elif learning_algo == "PPO":
-        model = PPO.load(model_path, env=env)
+        model = PPO.load(model_path)
     else:
         print(f"Learning algorithm {learning_algo} may be in SB3 but not it's not been setup here.")
         return
-
-    print(f"Model loaded from {model_path}.")
-
+    
     model.set_env(env)
+    print(f"Model loaded from {model_path}.")
+    
 
     # Run one episode
     obs = env.reset()
@@ -306,8 +308,7 @@ def vizualize(config: dict, name_override=None):
     env.close()
     print(f"Visualization complete. Video saved in '{video_folder}' folder. Total steps is {step}. Total reward is {rewsum}.")
 
-    # TODO: hide this behind a flag
-    if False:
+    if scale_up:
         # Find the most recently created video file in the folder
         list_of_files = glob.glob(os.path.join(video_folder, "*.mp4"))
         if not list_of_files:
@@ -331,6 +332,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train or visualize a FRPPO agent for CarRacing-v3.")
     parser.add_argument("--train", action="store_true", help="Run the training process.")
     parser.add_argument("--visualise", action="store_true", help="Run the visualization process.")
+    parser.add_argument("--model", type=str, default="", help="Path to the trained model when running vis.")
+    parser.add_argument("--vis_scaleup", action="store_true", help="Post process the video to scale up.")
     parser.add_argument("--config", type=str, default="config.yaml", help="Path to the configuration YAML file.")
     parser.add_argument(
         "--parallel_runs",
@@ -338,13 +341,7 @@ if __name__ == "__main__":
         default=1,
         help="Maximum number of parallel training runs. Will be limited by the number of free GPUs.",
     )
-    parser.add_argument(
-        "--vis_model_name",
-        type=str,
-        default="",
-        help="Model prefix name (without the .zip, without the name of the log directory from config)",
-    )
-
+    
     args = parser.parse_args()
 
     config_path = args.config
@@ -401,4 +398,4 @@ if __name__ == "__main__":
 
         if args.visualise:
             print("--- Running Visualization ---")
-            vizualize(config=config, name_override=args.vis_model_name)
+            vizualize(config=config, model_path=args.model, scale_up=args.vis_scaleup)

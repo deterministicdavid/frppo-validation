@@ -90,8 +90,9 @@ def main():
     plt.savefig(args.outfile, format="pdf")
     plt.close()
 
+    print("=====================================")
     print(f"Saved plot to {args.outfile}")
-
+    print("=====================================")
 
 if __name__ == "__main__":
     main()

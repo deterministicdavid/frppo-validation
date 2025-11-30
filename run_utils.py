@@ -1,13 +1,29 @@
 import os
 import pynvml
-
 import torch
+import numpy as np
+import gymnasium as gym
 
 from stable_baselines3.common.callbacks import CheckpointCallback, BaseCallback
 
 import glob
 from moviepy import VideoFileClip
 
+
+class ForceFloat32Wrapper(gym.ObservationWrapper):
+    def __init__(self, env):
+        super().__init__(env)
+        # 1. Force the declared space to be float32 to satisfy SB3 check
+        self.observation_space = gym.spaces.Box(
+            low=env.observation_space.low,
+            high=env.observation_space.high,
+            shape=env.observation_space.shape,
+            dtype=np.float32
+        )
+
+    def observation(self, obs):
+        # 2. Force the actual data to be float32
+        return obs.astype(np.float32)
 
 class OverwriteCheckpointCallback(BaseCallback):
     """
