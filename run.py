@@ -43,10 +43,13 @@ from own_policy import CustomActorCriticCnnPolicy
 
 
 # --- Helper function to create environments ---
-def make_env_default(env_name: str, seed: int):
+def make_env_default(env_name: str, seed: int, training_mode: bool):
     def _init():
         env = gym.make(env_name, render_mode="rgb_array")
         env = gym.wrappers.RecordEpisodeStatistics(env)
+        if not training_mode:
+            env = ForceFloat32Wrapper(env)
+        
         env.reset(seed=seed)
         return env
 
@@ -72,41 +75,15 @@ def make_env_mujoco(config: dict, seed: int):
 
     return _init
 
-
-def train(config: dict, assigned_device: torch.device, seed: int):
-    learning_algo = config["train"]["algo"]
+def make_configured_vec_env(num_envs: int, config: dict, seed: int | None, training_mode=True, stats_path=None ):
     env_name = config["env_name"]
     env_is_atari = config.get("env_is_atari", True)
     env_is_mujoco = config.get("env_is_mujoco", False)
     assert not (env_is_atari and env_is_mujoco)
-
+    
     n_stack = config["n_stack"]
-    num_envs = config["train"]["n_envs"]
-    log_dir = config["logging"]["log_dir"]
-    name_prefix = config["logging"]["name_prefix"]
-    save_freq = config["logging"]["checkpoint_save_freq"]
-    n_steps = config["train"]["n_steps"]
-    batch_size = config["train"]["batch_size"]
-    total_timesteps = config["train"]["total_timesteps"]
-    ent_coef = config["train"]["ent_coef"]
-
-    policy = None
-    policy_kwargs = {}
-
+    
     if env_is_atari:
-        # Note that using CnnPolicy makes SB3 normalize images to [0,1],
-        # which is #9 of "The 37 implementation details of Proximal Policy Optimization"
-        policy = "CnnPolicy"
-        policy_kwargs = {
-            "ortho_init": True,
-            "features_extractor_class": NatureCNN,
-            "share_features_extractor": True,
-            "normalize_images": True,
-        }
-
-        if config["train"]["policy"] == "own":
-            policy = CustomActorCriticCnnPolicy  # this will also normalize to [0,1]
-
         env = make_atari_env(
             env_id=env_name,
             n_envs=num_envs,
@@ -125,38 +102,92 @@ def train(config: dict, assigned_device: torch.device, seed: int):
         env = VecFrameStack(env, n_stack=n_stack)
 
     elif env_is_mujoco:
-        policy = "MlpPolicy"  # TODO: check whether we need to set more options to track "The 37 implementation details"
-        policy_kwargs = {
-            "ortho_init": True,
-            "share_features_extractor": False,
-        }
-
         def custom_wrappers(env: gym.Env) -> gym.Env:
-            # env = gym.wrappers.ClipAction(env) # this messes up the action space
-            env = gym.wrappers.NormalizeObservation(env)
             env = gym.wrappers.TransformObservation(env, lambda obs: np.clip(obs, -10, 10), env.observation_space)
-            env = gym.wrappers.NormalizeReward(env)
             env = gym.wrappers.TransformReward(env, lambda r: np.clip(r, -10, 10))
+            if not training_mode:
+                env = ForceFloat32Wrapper(env)
             return env
 
         env = make_vec_env(env_name, n_envs=num_envs, wrapper_class=custom_wrappers)
-        # env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_obs=10.0)
+        env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_obs=10.0)
         if n_stack > 0:
             print(f'Mujoco doesn\'t do "frame" stacking.')
+
+        if not training_mode:
+            # Load the stats file
+            if os.path.exists(stats_path):
+                print(f"Loading normalization stats from {stats_path}")
+                env = VecNormalize.load(stats_path, env)
+                env.training = False # Freeze stats!
+                env.norm_reward = False # See raw rewards
+            else:
+                raise ValueError("ERROR: Stats file not found. Retraining required.")
+            
+
     else:
-        policy = "CnnPolicy"  # TODO: this will need more work as it won't work for both car racing and the classic stuff
         env_fns = [make_env_default(env_name, seed=i) for i in range(num_envs)]
         env = SubprocVecEnv(env_fns)
         env = VecMonitor(env)
         env = VecFrameStack(env, n_stack=n_stack)
 
-    # --- Setup what we save ---
-    checkpoint_callback = OverwriteCheckpointCallback(
-        save_freq=save_freq, save_path=log_dir, name_prefix=name_prefix  # This is now based on total timesteps
-    )
 
-    # --- Create and train the model ---
+    if not training_mode:
+        MAX_STEPS = 10_000
+        learning_algo = config["train"]["algo"]
+        video_folder = config["visualize"]["video_folder"]
+        os.makedirs(video_folder, exist_ok=True)
+    
+        env = VecVideoRecorder(
+            venv=env,
+            video_folder=video_folder,
+            record_video_trigger=lambda x: x == 0,  # record first episode
+            video_length=MAX_STEPS,
+            name_prefix=f"{learning_algo}",
+        )
+    return env
 
+def make_configured_algo_and_model(env, config: dict, assigned_device: torch.device, seed: int):
+    learning_algo = config["train"]["algo"]
+    env_is_atari = config.get("env_is_atari", True)
+    env_is_mujoco = config.get("env_is_mujoco", False)
+    assert not (env_is_atari and env_is_mujoco)
+
+    log_dir = config["logging"]["log_dir"]
+    n_steps = config["train"]["n_steps"]
+    batch_size = config["train"]["batch_size"]
+    
+    ent_coef = config["train"]["ent_coef"]
+
+    env_is_atari = config.get("env_is_atari", True)
+    env_is_mujoco = config.get("env_is_mujoco", False)
+    
+    policy = None
+    policy_kwargs = {}
+
+    if env_is_atari:
+        # Note that using CnnPolicy makes SB3 normalize images to [0,1],
+        # which is #9 of "The 37 implementation details of Proximal Policy Optimization"
+        policy = "CnnPolicy"
+        policy_kwargs = {
+            "ortho_init": True,
+            "features_extractor_class": NatureCNN,
+            "share_features_extractor": True,
+            "normalize_images": True,
+        }
+
+        if config["train"]["policy"] == "own":
+            policy = CustomActorCriticCnnPolicy  # this will also normalize to [0,1]
+
+    elif env_is_mujoco:
+        policy = "MlpPolicy"  # TODO: check whether we need to set more options to track "The 37 implementation details"
+        policy_kwargs = {
+            "ortho_init": True,
+            "share_features_extractor": False,
+        }
+    else:
+        policy = "CnnPolicy"  # TODO: this will need more work as it won't work for both car racing and the classic stuff
+    
     model = None
     learning_rate = 3e-4
     if config["train"]["decay_lr"]:
@@ -205,6 +236,22 @@ def train(config: dict, assigned_device: torch.device, seed: int):
         print(f"Learning algorithm {learning_algo} may be in SB3 but not it's not been setup here.")
         return
 
+    return model
+
+def train(config: dict, assigned_device: torch.device, seed: int):    
+    num_envs = config["train"]["n_envs"]
+    log_dir = config["logging"]["log_dir"]
+    total_timesteps = config["train"]["total_timesteps"]
+    name_prefix = config["logging"]["name_prefix"]
+    save_freq = config["logging"]["checkpoint_save_freq"]
+    
+    env = make_configured_vec_env(num_envs=num_envs, config=config, seed=seed, training_mode=True)
+    model = make_configured_algo_and_model(env=env, config=config, assigned_device=assigned_device, seed=seed)
+    
+    checkpoint_callback = OverwriteCheckpointCallback(
+        save_freq=save_freq, save_path=log_dir, name_prefix=name_prefix  # This is now based on total timesteps
+    )
+
     tb_path = os.path.join(log_dir, f"{model.__class__.__name__}_{config['train']['run_id']}")
     os.makedirs(tb_path, exist_ok=True)
     new_logger = configure(tb_path, ["stdout", "csv", "tensorboard"])
@@ -214,84 +261,35 @@ def train(config: dict, assigned_device: torch.device, seed: int):
     model.learn(total_timesteps=total_timesteps, callback=checkpoint_callback)
     save_file = os.path.join(log_dir, name_prefix)
     model.save(save_file)
-
     env.close()
 
 
 def vizualize(config: dict, model_path, scale_up=False):
     print("Starting visualization...")
-    MAX_STEPS = 10_000
-
+    
     learning_algo = config["train"]["algo"]
-    env_name = config["env_name"]
-    env_is_atari = config.get("env_is_atari", True)
-    n_stack = config["n_stack"]
     video_folder = config["visualize"]["video_folder"]
-    
     deterministic_actions = config["visualize"]["deterministic"]
-    seed = None  # random visualisations
     
-    
-    
-
-    os.makedirs(video_folder, exist_ok=True)
-
-    if env_is_atari:
-        print("Atari environment detected. Using Atari-specific wrappers for visualization.")
-        env = make_atari_env(
-            env_id=env_name,
-            n_envs=1,
-            seed=seed,
-            wrapper_kwargs={
-                "noop_max": 30,
-                "frame_skip": 4,
-                "screen_size": 84,
-                "terminal_on_life_loss": True,
-                "clip_reward": True,
-                "action_repeat_probability": 0.0,
-            },
-            vec_env_cls=DummyVecEnv,
-        )
-        env = VecFrameStack(env, n_stack=n_stack)
-    else:
-        print("Default environment detected.")
-        # Non-Atari env
-        # env = gym.make(env_name, render_mode="rgb_array")
-        env = make_vec_env(env_name, n_envs=1, wrapper_class=ForceFloat32Wrapper)
-        
-
-    env = VecVideoRecorder(
-        venv=env,
-        video_folder=video_folder,
-        record_video_trigger=lambda x: x == 0,  # record first episode
-        video_length=MAX_STEPS,
-        name_prefix=f"{learning_algo}",
-    )
-
-    # Load the trained model
-    if not os.path.exists(model_path):
-        print(f"Model not found at {model_path}. Please run training first.")
-        return
-
+    stats_path = os.path.join(os.path.dirname(model_path), f"{os.path.basename(model_path).replace('.zip', '')}_env.pkl")
+    env = make_configured_vec_env(num_envs=1, config=config, seed=None, training_mode=False, stats_path=stats_path)
     model = None
     if learning_algo == "FRPPO":
-        model = FRPPO.load(model_path)
+        model = FRPPO.load(model_path, env=env)
     elif learning_algo == "PPO":
-        model = PPO.load(model_path)
+        model = PPO.load(model_path, env=env)
     else:
         print(f"Learning algorithm {learning_algo} may be in SB3 but not it's not been setup here.")
         return
     
-    model.set_env(env)
     print(f"Model loaded from {model_path}.")
     
-
     # Run one episode
     obs = env.reset()
     done = False
     rewsum = 0
     step = 0
-
+    MAX_STEPS = 10_000
     while not done:
         step += 1
         # Use deterministic actions for evaluation

@@ -5,6 +5,7 @@ import numpy as np
 import gymnasium as gym
 
 from stable_baselines3.common.callbacks import CheckpointCallback, BaseCallback
+from stable_baselines3.common.vec_env import unwrap_vec_normalize
 
 import glob
 from moviepy import VideoFileClip
@@ -41,6 +42,7 @@ class OverwriteCheckpointCallback(BaseCallback):
         self.save_path = save_path
         # The full path for the save file, e.g., ./logs/latest_model.zip
         self.save_file = os.path.join(save_path, f"{name_prefix}.zip")
+        self.save_file_stats = os.path.join(save_path, f"{name_prefix}_env.pkl")
 
     def _init_callback(self) -> None:
         # Create folder if needed
@@ -52,6 +54,11 @@ class OverwriteCheckpointCallback(BaseCallback):
         if self.num_timesteps > (self.num_saves + 1) * self.save_freq:
             self.num_saves += 1
             self.model.save(self.save_file)
+
+            normalized_env = unwrap_vec_normalize(self.model.env)
+            if normalized_env is not None:
+                normalized_env.save(self.save_file_stats)
+            
             if self.verbose > 0:
                 print(f"Saving latest model to {self.save_file}")
         return True
