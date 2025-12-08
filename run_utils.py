@@ -1,14 +1,72 @@
 import os
+import collections
 import pynvml
 import torch
 import numpy as np
 import gymnasium as gym
+import optuna
+from optuna.exceptions import TrialPruned
 
 from stable_baselines3.common.callbacks import CheckpointCallback, BaseCallback
 from stable_baselines3.common.vec_env import unwrap_vec_normalize
 
 import glob
 from moviepy import VideoFileClip
+
+# This callback lets Optuna stop unpromising trials early.
+class OptunaPruningCallback(BaseCallback):
+    def __init__(self, trial: optuna.Trial, freq: int, n_envs: int, n_steps: int, verbose: int = 0):
+        super().__init__(verbose)
+        self.trial = trial
+        self.check_freq = freq
+        self.n_envs = n_envs
+        self.last_check_timesteps = 0
+        # Track episode rewards for each parallel environment
+        self.current_episode_rewards = [0.0] * n_envs 
+        self.n_steps = n_steps # how many to consider for reward
+    
+        # A deque to store the final reward of completed episodes
+        self.episode_rewards = collections.deque(maxlen=self.n_steps) # Track up to 20 recent episodes
+
+    def _on_step(self) -> bool:
+        rewards = self.locals["rewards"]
+        dones = self.locals["dones"]
+        
+        for i in range(self.n_envs):
+        # Accumulate reward for the current active episode in environment i
+            self.current_episode_rewards[i] += rewards[i] 
+
+            # Check for episode termination (only the 'done' signal is needed)
+            if dones[i]:
+                # Episode finished: record the total reward and reset the counter
+                self.episode_rewards.append(self.current_episode_rewards[i])
+                self.current_episode_rewards[i] = 0.0
+
+        if (self.num_timesteps - self.last_check_timesteps) >= self.check_freq:
+            self.last_check_timesteps = self.num_timesteps
+
+            if self.episode_rewards:
+                # Calculate the mean reward over the tracked completed episodes
+                # Using np.mean(self.episode_rewards) gives the mean over the maxlen (200) episodes
+                mean_reward = np.mean(self.episode_rewards) 
+                
+                # Log to SB3 logger (Optional, but useful for TensorBoard)
+                self.logger.record("optuna/ep_rew_mean_tracked", mean_reward)
+                
+                # Report intermediate score to Optuna, with a minus since we minimise
+                self.trial.report(-mean_reward, step=self.num_timesteps)
+                
+                # Handle pruning
+                if self.trial.should_prune():
+                    print(f"Trial {self.trial.number} pruned at step {self.num_timesteps}.")
+                    raise TrialPruned()
+    
+        return True # Continue training
+    
+    def get_final_mean_reward(self) -> float:
+        if self.episode_rewards:
+            return np.mean(self.episode_rewards)
+        return -np.inf # Return a very low value if no episodes were completed
 
 
 class ForceFloat32Wrapper(gym.ObservationWrapper):
@@ -44,6 +102,7 @@ class OverwriteCheckpointCallback(BaseCallback):
         self.save_file = os.path.join(save_path, f"{name_prefix}.zip")
         self.save_file_stats = os.path.join(save_path, f"{name_prefix}_env.pkl")
 
+
     def _init_callback(self) -> None:
         # Create folder if needed
         if self.save_path is not None:
@@ -61,6 +120,7 @@ class OverwriteCheckpointCallback(BaseCallback):
             
             if self.verbose > 0:
                 print(f"Saving latest model to {self.save_file}")
+
         return True
 
 
@@ -122,7 +182,13 @@ def select_free_gpu_or_fallback(never_mps=False):
     if torch.backends.mps.is_available() and not never_mps:
         device = torch.device("mps")
     elif torch.cuda.is_available():
-        # Initialize NVML
+        device_count = torch.cuda.device_count()
+        # we have just one gpu
+        if device_count == 1: 
+            device = torch.device(f"cuda:{0}")
+            return device
+    
+        # okay more than one GPU
         pynvml.nvmlInit()
 
         device_count = torch.cuda.device_count()

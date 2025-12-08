@@ -1,7 +1,7 @@
 
 
 # --- General Env ---
-env_name: "Hopper-v5"
+env_name: "Walker2d-v5"
 env_is_atari: false
 env_is_mujoco: true
 n_stack: 0
@@ -26,11 +26,11 @@ train:
 
 # --- Logging & Saving ---
 logging:
-  log_dir: "./logs_hopper/"
-  name_prefix: "frppo0_hopper_latest"
+  log_dir: "./logs_walker2d/"
+  name_prefix: "frppo0_walker2d_latest"
   checkpoint_save_freq: 10000 # OverwriteCheckpointCallback save frequency
 
 # --- Visualization ---
 visualize:
-  video_folder: "videos_hopper/"
+  video_folder: "videos_walker2d/"
   deterministic: true

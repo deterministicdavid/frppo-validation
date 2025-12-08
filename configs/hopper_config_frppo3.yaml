@@ -17,7 +17,7 @@ train:
   n_opt_epochs: 10 
   total_timesteps: 1000000
   ent_coef: 0.00 # Again following the 37 implementation details of Proximal Policy Optimization for mujoco
-  decay_lr: true # And same again
+  decay_lr_final_frac: 0.0
   decay_lr_init: 3e-4 # And same again
   clip_epsilon: 0.2 # This should be their cliprange=0.2 and now equal to 0.2 as is common
   fr_tau_penalty: 0.1

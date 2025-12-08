@@ -5,9 +5,13 @@ import multiprocessing as mp
 import argparse
 import copy
 
+
 import gymnasium as gym
 import ale_py
 import numpy as np
+import optuna
+from optuna.integration import PyTorchLightningPruningCallback
+from optuna.exceptions import TrialPruned
 
 from gymnasium.wrappers import AtariPreprocessing, TransformObservation
 from stable_baselines3 import PPO
@@ -23,7 +27,7 @@ from stable_baselines3.common.vec_env import (
     VecNormalize,
 )
 from stable_baselines3.common.torch_layers import NatureCNN
-from stable_baselines3.common.env_util import make_atari_env, make_vec_env
+from stable_baselines3.common.env_util import make_atari_env, make_vec_env, unwrap_wrapper
 
 
 import glob
@@ -32,6 +36,7 @@ import random
 import yaml
 
 from run_utils import (
+    OptunaPruningCallback,
     ForceFloat32Wrapper,
     OverwriteCheckpointCallback,
     select_free_gpu_or_fallback,
@@ -75,7 +80,7 @@ def make_env_mujoco(config: dict, seed: int):
 
     return _init
 
-def make_configured_vec_env(num_envs: int, config: dict, seed: int | None, training_mode=True, stats_path=None ):
+def make_configured_vec_env(num_envs: int, config: dict, seed: int | None, training_mode=True, video_recording=False, stats_path=None ):
     env_name = config["env_name"]
     env_is_atari = config.get("env_is_atari", True)
     env_is_mujoco = config.get("env_is_mujoco", False)
@@ -100,8 +105,12 @@ def make_configured_vec_env(num_envs: int, config: dict, seed: int | None, train
         )
         # Using frame stacking with n_stack=4 is #7 of "The 37 implementation details of Proximal Policy Optimization"
         env = VecFrameStack(env, n_stack=n_stack)
+        # env = VecMonitor(env, filename=None, info_keywords=())
 
     elif env_is_mujoco:
+        if n_stack > 0:
+            raise ValueError(f"Frame stacking of {n_stack} configured but Mujoco doesn't do frame stacking.")
+        
         def custom_wrappers(env: gym.Env) -> gym.Env:
             env = gym.wrappers.TransformObservation(env, lambda obs: np.clip(obs, -10, 10), env.observation_space)
             env = gym.wrappers.TransformReward(env, lambda r: np.clip(r, -10, 10))
@@ -110,11 +119,10 @@ def make_configured_vec_env(num_envs: int, config: dict, seed: int | None, train
             return env
 
         env = make_vec_env(env_name, n_envs=num_envs, wrapper_class=custom_wrappers)
+        # env = VecMonitor(env, filename=None, info_keywords=())
         env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_obs=10.0)
-        if n_stack > 0:
-            print(f'Mujoco doesn\'t do "frame" stacking.')
-
-        if not training_mode:
+        
+        if not training_mode and stats_path is not None:
             # Load the stats file
             if os.path.exists(stats_path):
                 print(f"Loading normalization stats from {stats_path}")
@@ -124,15 +132,15 @@ def make_configured_vec_env(num_envs: int, config: dict, seed: int | None, train
             else:
                 raise ValueError("ERROR: Stats file not found. Retraining required.")
             
-
     else:
         env_fns = [make_env_default(env_name, seed=i) for i in range(num_envs)]
         env = SubprocVecEnv(env_fns)
-        env = VecMonitor(env)
+        
         env = VecFrameStack(env, n_stack=n_stack)
+        # env = VecMonitor(env, filename=None, info_keywords=())
 
 
-    if not training_mode:
+    if not training_mode and video_recording:
         MAX_STEPS = 10_000
         learning_algo = config["train"]["algo"]
         video_folder = config["visualize"]["video_folder"]
@@ -189,10 +197,12 @@ def make_configured_algo_and_model(env, config: dict, assigned_device: torch.dev
         policy = "CnnPolicy"  # TODO: this will need more work as it won't work for both car racing and the classic stuff
     
     model = None
-    learning_rate = 3e-4
-    if config["train"]["decay_lr"]:
-        lr_decay_init = float(config.get("train", {}).get("decay_lr_init", "2.5e-4"))
-        learning_rate = lambda f: f * lr_decay_init
+    
+    lr_decay_init = float(config.get("train", {}).get("decay_lr_init", "3e-4"))
+    lr_decay_final_frac = float(config.get("train", {}).get("decay_lr_final_frac", "1.0")) # default value 1.0 means we don't decay
+    assert(lr_decay_final_frac >= 0.0 and lr_decay_final_frac <= 1.0)
+    lr_decay_final = lr_decay_final_frac * lr_decay_init
+    learning_rate = lambda f: f * lr_decay_init + (1.0-f) * lr_decay_final
 
     default_n_opt_epochs = 4
     n_opt_epochs = config.get("train", {}).get("n_opt_epochs", default_n_opt_epochs)
@@ -238,7 +248,162 @@ def make_configured_algo_and_model(env, config: dict, assigned_device: torch.dev
 
     return model
 
-def train(config: dict, assigned_device: torch.device, seed: int):    
+def evaluate_model(model, config: dict, num_eval_runs: int = 10):
+    """
+    Evaluates the trained model over multiple episodes using unnormalized rewards.
+
+    Returns:
+        float: The mean unnormalized total reward across all evaluation runs.
+    """
+    env_is_mujoco = config.get("env_is_mujoco", False)
+    
+    # 1. Create a dedicated evaluation environment (num_envs=1)
+    # Crucially, we use training_mode=False to ensure reward wrappers are absent 
+    # or disabled for raw score reporting.
+    eval_env = make_configured_vec_env(
+        num_envs=1, 
+        config=config, 
+        seed=None, # Use random seed for evaluation
+        training_mode=False,
+        video_recording=False
+    )
+    
+    all_episode_rewards = []
+
+    for _ in range(num_eval_runs):
+        obs = eval_env.reset()
+        done = False
+        rewards = 0
+        
+        # Determine if we need to load VecNormalize stats (Mujoco only)
+        if env_is_mujoco:
+            normalized_env = unwrap_wrapper(eval_env, VecNormalize)
+            if normalized_env is not None and normalized_env.norm_reward:
+                # If reward normalization is mistakenly active, issue a warning.
+                print("Warning: Mujoco evaluation environment has active reward normalization.")
+
+        while not done:
+            # Use deterministic actions for a stable evaluation
+            action, _ = model.predict(obs, deterministic=True)
+            obs, rew, done, _ = eval_env.step(action)
+            done = done[0] # Unwrap from VecEnv structure
+            rewards += rew[0]
+
+        all_episode_rewards.append(rewards)
+
+    eval_env.close()
+    
+    mean_unnormalized_reward = np.mean(all_episode_rewards)
+    return mean_unnormalized_reward
+
+def optuna_objective(trial: optuna.Trial, base_config: dict, assigned_device: torch.device, seed: int) -> float:
+    """
+    Optuna objective function to sample hyperparameters, train the model,
+    and return the performance metric (e.g., negative mean reward).
+    """
+    
+    # 1. Deep copy the config to safely modify it for the current trial
+    trial_config = copy.deepcopy(base_config)
+    
+    # Learning rate (log uniform)
+    if trial_config["optuna"]["search_space"]["learning_rate_log"] is not None:
+        lr_low, lr_high = trial_config["optuna"]["search_space"]["learning_rate_log"]
+        lr = trial.suggest_float("learning_rate", low=float(lr_low), high=float(lr_high),log=True)
+        trial_config["train"]["learning_rate"] = lr # Store fixed LR in config
+    
+    # Sample n_steps 
+    # pow10_low, pow10_high = trial_config["optuna"]["search_space"].get("total_timesteps_pow10", [3, 4])
+    # total_timesteps_exponent = trial.suggest_int("total_timesteps_exponent", low=pow10_low, high=pow10_high)
+    # trial_config["train"]["total_timesteps"] = 10**total_timesteps_exponent
+    
+    # Sample entropy coefficient (uniform)
+    ent_coeff_entry = trial_config["optuna"]["search_space"].get("ent_coef_uniform", None)
+    if ent_coeff_entry is not None:
+        ent_low, ent_high = ent_coeff_entry
+        ent_coef = trial.suggest_float("ent_coef", ent_low, ent_high,log=False)
+        trial_config["train"]["ent_coef"] = ent_coef
+    
+    # Final lr as fraction of initial LR
+    if trial_config["optuna"]["search_space"]["decay_lr_final_frac"] is not None:
+        decay_lr_final_frac_low, decay_lr_final_frac_high = trial_config["optuna"]["search_space"]["decay_lr_final_frac"]
+        decay_lr_final_frac = trial.suggest_float("decay_lr_final_frac", low=float(decay_lr_final_frac_low), high=float(decay_lr_final_frac_high))
+        trial_config["train"]["decay_lr_final_frac"] = decay_lr_final_frac
+
+    # FRPPO penalty parameter
+    if trial_config["train"]["algo"] == "FRPPO" and trial_config["optuna"]["search_space"]["fr_tau_penalty_log"] is not None:
+        fr_low, fr_high = trial_config["optuna"]["search_space"]["fr_tau_penalty_log"]
+        fr_tau_penalty = trial.suggest_float("fr_tau_penalty", fr_low, fr_high,log=True)
+        trial_config["train"]["fr_tau_penalty"] = fr_tau_penalty
+
+    # PPO clip parameter
+    if trial_config["train"]["algo"] == "PPO" and trial_config["optuna"]["search_space"]["clip_epsilon_uniform"] is not None:
+        clip_low, clip_high = trial_config["optuna"]["search_space"]["clip_epsilon_uniform"]
+        clip = trial.suggest_float("clip_epsilon", clip_low, clip_high, log=False)
+        trial_config["train"]["clip_epsilon"] = clip
+
+    
+    # 3. Update Logging and Run ID for this trial
+    trial_id = trial.number
+    original_prefix = trial_config["logging"]["name_prefix"]
+    trial_config["train"]["run_id"] = f"optuna_trial_{trial_id}_{assigned_device.type}_{assigned_device.index}"
+    trial_config["logging"]["name_prefix"] = f"{original_prefix}_trial_{trial_id}"
+    
+    
+    # Overwrite the checkpoint callback with the OptunaPruningCallback
+    # You may want to run both.
+    pruning_callback = OptunaPruningCallback(
+        trial=trial, 
+        freq=trial_config["logging"]["checkpoint_save_freq"],
+        n_steps=config["train"]["n_steps"],
+        n_envs=trial_config["train"]["n_envs"]
+    )
+    
+    # 5. Run Training
+    final_reward = train(trial_config, assigned_device, seed, extra_callbacks=[pruning_callback])
+    
+    # Optuna minimizes the objective, so we return the negative reward.
+    return -final_reward
+
+def run_optuna_worker(worker_id: int, config: dict, gpus_to_use: list):
+    """
+    Worker function that runs independently in its own process.
+    Each worker pulls trials from the shared database.
+    """
+    
+    assigned_device = random.choice(gpus_to_use)
+    print(f"Worker {worker_id} starting, assigned to GPU {assigned_device}")
+    
+    run_config = copy.deepcopy(config)
+    original_run_id = config.get("train", {}).get("run_id", "0")
+    original_prefix = run_config["logging"]["name_prefix"]
+    run_config["train"]["run_id"] = f"{original_run_id}_optuna_worker_{worker_id}_on_gpu_{assigned_device.type}_{assigned_device.index}"
+    run_config["logging"]["name_prefix"] = f"{original_prefix}_{original_run_id}_{worker_id}_run_on_gpu_{assigned_device.index}" 
+
+
+    config_optuna = run_config["optuna"]
+    storage = config_optuna["storage"]
+    study_name = config_optuna["study_name"]
+    n_trials_per_worker = config_optuna["n_trials_per_worker"]
+    
+    # Create/load study (all workers share the same study via database)
+    study = optuna.load_study(
+        study_name=study_name,
+        storage=storage,
+    )
+    
+    # Each worker runs trials independently
+    # Optuna handles synchronization via the database
+    study.optimize(
+        lambda trial: optuna_objective(trial, run_config, assigned_device=assigned_device, seed=None),
+        n_trials=n_trials_per_worker,
+        show_progress_bar=False,
+    )
+    
+    print(f"Worker {worker_id} finished")
+
+
+
+def train(config: dict, assigned_device: torch.device, seed: int, extra_callbacks=None):    
     num_envs = config["train"]["n_envs"]
     log_dir = config["logging"]["log_dir"]
     total_timesteps = config["train"]["total_timesteps"]
@@ -258,10 +423,20 @@ def train(config: dict, assigned_device: torch.device, seed: int):
     model.set_logger(new_logger)
     log_hyper_parameters(logger=model.logger, config=config)
 
-    model.learn(total_timesteps=total_timesteps, callback=checkpoint_callback)
+    callbacks = [checkpoint_callback]
+    if extra_callbacks:
+        callbacks.extend(extra_callbacks)
+
+    model.learn(total_timesteps=total_timesteps, callback=callbacks)
     save_file = os.path.join(log_dir, name_prefix)
     model.save(save_file)
     env.close()
+    
+    
+    n_eval_runs = 20
+    final_score = evaluate_model(model=model, config=config, num_eval_runs=n_eval_runs)
+    print(f"Evaluation with {n_eval_runs} runs, reward: {final_score}")
+    return final_score
 
 
 def vizualize(config: dict, model_path, scale_up=False):
@@ -272,7 +447,12 @@ def vizualize(config: dict, model_path, scale_up=False):
     deterministic_actions = config["visualize"]["deterministic"]
     
     stats_path = os.path.join(os.path.dirname(model_path), f"{os.path.basename(model_path).replace('.zip', '')}_env.pkl")
-    env = make_configured_vec_env(num_envs=1, config=config, seed=None, training_mode=False, stats_path=stats_path)
+    env = make_configured_vec_env(num_envs=1, 
+                                  config=config, 
+                                  seed=None, 
+                                  training_mode=False, 
+                                  video_recording=True,
+                                  stats_path=stats_path)
     model = None
     if learning_algo == "FRPPO":
         model = FRPPO.load(model_path, env=env)
@@ -321,13 +501,13 @@ def vizualize(config: dict, model_path, scale_up=False):
 
 
 if __name__ == "__main__":
-    try:
-        mp.set_start_method("spawn", force=True)
-    except RuntimeError:
-        pass
+    # try:
+    #     mp.set_start_method("spawn", force=True)
+    # except RuntimeError:
+    #     pass
 
     # --- Add command line argument parsing ---
-    parser = argparse.ArgumentParser(description="Train or visualize a FRPPO agent for CarRacing-v3.")
+    parser = argparse.ArgumentParser(description="Train or visualize a PPO or FRPPO agent for Atari or Mujoco gym.")
     parser.add_argument("--train", action="store_true", help="Run the training process.")
     parser.add_argument("--visualise", action="store_true", help="Run the visualization process.")
     parser.add_argument("--model", type=str, default="", help="Path to the trained model when running vis.")
@@ -339,6 +519,8 @@ if __name__ == "__main__":
         default=1,
         help="Maximum number of parallel training runs. Will be limited by the number of free GPUs.",
     )
+    # --- Add Optuna flag to argparse ---
+    parser.add_argument("--optuna", action="store_true", help="Run hyperparameter optimization with Optuna.")
     
     args = parser.parse_args()
 
@@ -351,9 +533,15 @@ if __name__ == "__main__":
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
 
-    if not args.train and not args.visualise:
-        print("No action specified. Please use --train or --visualise (or both).")
-        parser.print_help()
+    if not args.train and not args.visualise and not args.optuna:
+        print("No action specified. Please use one of --train, --optuna, --visualise. Use -h, --help to see cmdline param help.")
+        exit(1)
+    elif args.train and args.optuna:
+        print("")
+        print("*** No point running train and optuna at the same time. Use -h, --help to see cmdline param help.***")
+        print("")
+        exit(1)
+        
     else:
         if args.train:
             print(f"--- Preparing for up to {args.parallel_runs} parallel training run(s) ---")
@@ -397,3 +585,64 @@ if __name__ == "__main__":
         if args.visualise:
             print("--- Running Visualization ---")
             vizualize(config=config, model_path=args.model, scale_up=args.vis_scaleup)
+
+        if args.optuna:
+            print("--- Running Optuna Optimization ---")
+            
+            optuna_config = config["optuna"]
+            storage = optuna_config["storage"]
+            study_name = optuna_config["study_name"]
+            n_startup_trials = optuna_config["n_startup_trials"]
+            sampler_name = optuna_config.get("sampler", "unknown")
+            n_jobs = args.parallel_runs 
+            
+            sampler = None 
+            if sampler_name == "TPESampler":
+                sampler = optuna.samplers.TPESampler(
+                    n_startup_trials=n_startup_trials,  # Random sampling for first n_jobs trials
+                    multivariate=True,    # Better for parallel optimization
+                    seed=42
+                )
+            elif sampler_name == "GPSampler":
+                sampler = optuna.samplers.GPSampler(
+                    n_startup_trials=n_startup_trials,
+                    deterministic_objective=False,
+                    seed=42
+                )
+            else:
+                raise ValueError(f"Sampler is {sampler_name}, must be on of [GPSampler, TPESampler]")
+            
+            study = optuna.create_study(
+                study_name=study_name,
+                direction="minimize",
+                storage=storage,
+                sampler=sampler,
+                load_if_exists=False,
+            )
+
+            seed = config["train"].get("random_seed", None)
+            force_cpu = config["train"].get("force_cpu", False)
+            
+            gpus_to_use = get_free_cuda_gpus(max_count=args.parallel_runs, force_cpu=force_cpu)
+        
+            
+            processes = []
+            for worker_id in range(0, args.parallel_runs):
+                p = mp.Process(target=run_optuna_worker, args=(worker_id, config, gpus_to_use))
+                processes.append(p)
+                p.start()
+                if seed is not None:
+                    seed += 1
+
+            for p in processes:
+                p.join()
+
+
+            print("\n--- Optuna Optimization Finished ---")
+            if study.best_trial:
+                print(f"Best trial: {study.best_trial.value:.4f} (Negative Reward)")
+                print("Best hyperparameters:")
+                for key, value in study.best_trial.params.items():
+                    print(f"  {key}: {value}")
+            else:
+                print("WARNING: No complete trials found in the study.")

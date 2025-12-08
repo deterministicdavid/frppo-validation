@@ -12,7 +12,8 @@ train:
   batch_size: 256 # They say batch size nminibatches = 4 so 8 x 128 / 4 = 256
   total_timesteps: 10000000
   ent_coef: 0.01 # Again following the 37 implementation details of Proximal Policy Optimization
-  decay_lr: true # And same again
+  decay_lr_init: 2.3e-4
+  decay_lr_final_frac: 0.0 
   clip_epsilon: 0.2 # This should be their cliprange=0.1 and strangle not equal to 0.2 as is common
 
 # --- Logging & Saving ---
