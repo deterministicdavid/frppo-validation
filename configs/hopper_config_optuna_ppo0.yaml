@@ -13,7 +13,7 @@ train:
   n_steps: 2048 # Following the 37 implementation details of Proximal Policy Optimization
   batch_size: 512 # They say batch size nminibatches = 32 so 1 x 2048 / 32 = 64
   n_opt_epochs: 10 
-  total_timesteps: 500000
+  total_timesteps: 400000
   ent_coef: 0.05 # Again following the 37 implementation details of Proximal Policy Optimization for mujoco
   decay_lr_init: 3e-4 # And same again
   decay_lr_final_frac: 0.0 # This decays all the way to 0 rate at the end, ... 37 implementation details same again
@@ -34,12 +34,13 @@ visualize:
   deterministic: true
 
 optuna:
-  sampler: "GPSampler" # another option is TPESampler
-  n_startup_trials: 12
+  sampler: "TPESampler" # another option is TPESampler
+  n_runs_per_setting: 6 # for averaging
+  n_startup_trials: 8
   n_trials_per_worker: 48 # Number of optimization trials
   #storage: "sqlite:///optuna_study_ppo_hoppper_dbg.db" # Database for persistent storage
   storage: "postgresql://optuna_user:KcOrES8EYJwaCN7n@localhost/optuna_db"
-  study_name: ppo_hopper_hparams_2
+  study_name: ppo_hopper_hparams_1
   
   # Define the search space for your hyperparameters
   search_space:

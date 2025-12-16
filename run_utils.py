@@ -264,3 +264,19 @@ def log_hyper_parameters(logger, config):
 
     logger.dump(step=0)
     print("Logged hyperparameters to TensorBoard HParams tab.")
+
+
+def unwrap_wrapper_diy(env: gym.Env, wrapper_class: type[gym.Wrapper]):
+    """
+    Retrieve a ``VecEnvWrapper`` object by recursively searching.
+
+    :param env: Environment to unwrap
+    :param wrapper_class: Wrapper to look for
+    :return: Environment unwrapped till ``wrapper_class`` if it has been wrapped with it
+    """
+    env_tmp = env
+    while env_tmp is not None:
+        if isinstance(env_tmp, wrapper_class):
+            return env_tmp
+        env_tmp = env_tmp.env
+    return None

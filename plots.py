@@ -52,13 +52,28 @@ def main():
     parser.add_argument("--labels", nargs="+", required=True,
                         help="List of labels, same length/order as --patterns")
 
+    parser.add_argument("--figsize", nargs=2, type=float, default=[12, 6],
+                        help="Figure size: width height (default: 12 6)")
+
     args = parser.parse_args()
 
     if len(args.patterns) != len(args.labels):
         raise ValueError("patterns and labels must be the same length")
 
     log_root = f"./logs_{args.envname}"
-    plt.figure(figsize=(12,6))
+    plt.figure(figsize=args.figsize)
+
+    # params = {
+    #     'lines.linewidth': 3,       # Thicker lines
+    #     'axes.labelsize': 20,       # Axis labels (e.g., "Timesteps")
+    #     'axes.titlesize': 22,       # Title size
+    #     'xtick.labelsize': 18,      # X-axis tick numbers
+    #     'ytick.labelsize': 18,      # Y-axis tick numbers
+    #     'legend.fontsize': 18,      # Legend text
+    #     'font.family': 'serif',     # Matches LaTeX font better
+    #     # 'font.serif': ['Times New Roman'], # Optional: Match specific font
+    # }
+    # plt.rcParams.update(params)
 
 
     for pattern, label in zip(args.patterns, args.labels):

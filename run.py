@@ -43,6 +43,7 @@ from run_utils import (
     get_free_cuda_gpus,
     post_process_video,
     log_hyper_parameters,
+    unwrap_wrapper_diy,
 )
 from own_policy import CustomActorCriticCnnPolicy
 
@@ -80,7 +81,7 @@ def make_env_mujoco(config: dict, seed: int):
 
     return _init
 
-def make_configured_vec_env(num_envs: int, config: dict, seed: int | None, training_mode=True, video_recording=False, stats_path=None ):
+def make_configured_vec_env(num_envs: int, config: dict, seed: int | None, training_mode=True, video_recording=False, stats_path=None, vec_normalize_data=None ):
     env_name = config["env_name"]
     env_is_atari = config.get("env_is_atari", True)
     env_is_mujoco = config.get("env_is_mujoco", False)
@@ -131,6 +132,13 @@ def make_configured_vec_env(num_envs: int, config: dict, seed: int | None, train
                 env.norm_reward = False # See raw rewards
             else:
                 raise ValueError("ERROR: Stats file not found. Retraining required.")
+        elif not training_mode and vec_normalize_data is not None:
+            print("Loading normalization stats directly from training environment.")
+            # We copy the training environment's stats into the new evaluation environment
+            env.obs_rms = vec_normalize_data.obs_rms
+            env.ret_rms = vec_normalize_data.ret_rms
+            env.training = False # Freeze stats!
+            env.norm_reward = False # See raw rewards
             
     else:
         env_fns = [make_env_default(env_name, seed=i) for i in range(num_envs)]
@@ -248,7 +256,7 @@ def make_configured_algo_and_model(env, config: dict, assigned_device: torch.dev
 
     return model
 
-def evaluate_model(model, config: dict, num_eval_runs: int = 10):
+def evaluate_model(model, config: dict, num_eval_runs: int = 25):
     """
     Evaluates the trained model over multiple episodes using unnormalized rewards.
 
@@ -256,6 +264,13 @@ def evaluate_model(model, config: dict, num_eval_runs: int = 10):
         float: The mean unnormalized total reward across all evaluation runs.
     """
     env_is_mujoco = config.get("env_is_mujoco", False)
+    if env_is_mujoco:
+        # we need to get vec normalize data from training env
+        train_model_env = model.get_env()
+        vec_normalize_from_training = unwrap_wrapper_diy(train_model_env, VecNormalize)
+        assert vec_normalize_from_training is not None
+    else:
+        vec_normalize_from_training = None
     
     # 1. Create a dedicated evaluation environment (num_envs=1)
     # Crucially, we use training_mode=False to ensure reward wrappers are absent 
@@ -265,7 +280,8 @@ def evaluate_model(model, config: dict, num_eval_runs: int = 10):
         config=config, 
         seed=None, # Use random seed for evaluation
         training_mode=False,
-        video_recording=False
+        video_recording=False,
+        vec_normalize_data=vec_normalize_from_training,
     )
     
     all_episode_rewards = []
@@ -276,8 +292,9 @@ def evaluate_model(model, config: dict, num_eval_runs: int = 10):
         rewards = 0
         
         # Determine if we need to load VecNormalize stats (Mujoco only)
-        if env_is_mujoco:
-            normalized_env = unwrap_wrapper(eval_env, VecNormalize)
+        if env_is_mujoco:        
+            normalized_env = unwrap_wrapper_diy(eval_env, VecNormalize)
+            assert normalized_env is not None
             if normalized_env is not None and normalized_env.norm_reward:
                 # If reward normalization is mistakenly active, issue a warning.
                 print("Warning: Mujoco evaluation environment has active reward normalization.")
@@ -348,21 +365,29 @@ def optuna_objective(trial: optuna.Trial, base_config: dict, assigned_device: to
     trial_config["train"]["run_id"] = f"optuna_trial_{trial_id}_{assigned_device.type}_{assigned_device.index}"
     trial_config["logging"]["name_prefix"] = f"{original_prefix}_trial_{trial_id}"
     
+    n_runs_per_setting = config["optuna"]["n_runs_per_setting"]
+    all_final_rewards = []
     
-    # Overwrite the checkpoint callback with the OptunaPruningCallback
-    # You may want to run both.
-    pruning_callback = OptunaPruningCallback(
-        trial=trial, 
-        freq=trial_config["logging"]["checkpoint_save_freq"],
-        n_steps=config["train"]["n_steps"],
-        n_envs=trial_config["train"]["n_envs"]
-    )
+    for run_idx in range(n_runs_per_setting):
+        run_seed = seed + run_idx if seed is not None else None
+        
+        # run_final_reward = train(trial_config, assigned_device, run_seed, extra_callbacks=[pruning_callback])
+        run_final_reward = train(trial_config, assigned_device, run_seed, extra_callbacks=None)
+        all_final_rewards.append(run_final_reward)
+        current_avg_reward = np.mean(all_final_rewards)
+        intermediate_step = (run_idx + 1) * trial_config["train"]["total_timesteps"]
+        
+        trial.report(-current_avg_reward, step=intermediate_step)
+        
+        if trial.should_prune():
+            print(f"Trial {trial.number} pruned after {run_idx + 1}/{n_runs_per_setting} runs.")
+            raise TrialPruned()
     
-    # 5. Run Training
-    final_reward = train(trial_config, assigned_device, seed, extra_callbacks=[pruning_callback])
+    average_final_reward = np.mean(all_final_rewards)    
+    print(f"Trial {trial.number} reported reward {average_final_reward}.")
     
     # Optuna minimizes the objective, so we return the negative reward.
-    return -final_reward
+    return -average_final_reward
 
 def run_optuna_worker(worker_id: int, config: dict, gpus_to_use: list):
     """
@@ -501,12 +526,6 @@ def vizualize(config: dict, model_path, scale_up=False):
 
 
 if __name__ == "__main__":
-    # try:
-    #     mp.set_start_method("spawn", force=True)
-    # except RuntimeError:
-    #     pass
-
-    # --- Add command line argument parsing ---
     parser = argparse.ArgumentParser(description="Train or visualize a PPO or FRPPO agent for Atari or Mujoco gym.")
     parser.add_argument("--train", action="store_true", help="Run the training process.")
     parser.add_argument("--visualise", action="store_true", help="Run the visualization process.")
@@ -519,7 +538,6 @@ if __name__ == "__main__":
         default=1,
         help="Maximum number of parallel training runs. Will be limited by the number of free GPUs.",
     )
-    # --- Add Optuna flag to argparse ---
     parser.add_argument("--optuna", action="store_true", help="Run hyperparameter optimization with Optuna.")
     
     args = parser.parse_args()
@@ -547,6 +565,11 @@ if __name__ == "__main__":
             print(f"--- Preparing for up to {args.parallel_runs} parallel training run(s) ---")
             
             seed = config["train"].get("random_seed", None)
+            if seed is None:
+                print("No random seed given in config, env and model will use random initialisation.")
+            else:
+                print(f"Using {seed} as random seed for env and model.")
+
             force_cpu = config["train"].get("force_cpu", False)
             
             gpus_to_use = get_free_cuda_gpus(max_count=args.parallel_runs, force_cpu=force_cpu)

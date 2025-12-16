@@ -9,7 +9,7 @@ n_stack: 0
 # --- Training Parameters ---
 train:
   random_seed: 42
-  algo: "FRPPO"
+  algo: "PPO"
   run_id: "0" # for tensorboard logging
   policy: "default" # either "own" or "default"
   n_envs: 1 # Recommended for Mujoco
@@ -20,14 +20,13 @@ train:
   ent_coef: 0.00 # Again following the 37 implementation details of Proximal Policy Optimization for mujoco
   decay_lr_init: 3e-4 # And same again
   decay_lr_final_frac: 0.3 
-  fr_tau_penalty: 0.001
-  fr_scale_by_adv: true
+  clip_epsilon: 0.2 # This should be their cliprange=0.2 and now equal to 0.2 as is common
   force_cpu: false
 
 # --- Logging & Saving ---
 logging:
   log_dir: "./logs_walker2d/"
-  name_prefix: "frppo0_walker2d_latest"
+  name_prefix: "ppo0_walker2d_latest"
   checkpoint_save_freq: 10000 # OverwriteCheckpointCallback save frequency
 
 # --- Visualization ---
