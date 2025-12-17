@@ -7,6 +7,7 @@ n_stack: 4
 
 # --- Training Parameters ---
 train:
+  random_seed: 42
   algo: "PPO"
   run_id: "1" 
   policy: "default" # either "own" or "default"

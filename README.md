@@ -11,9 +11,19 @@ The repo contains code for validating performance of FR-PPO.
 
 ## General use
 
-Use `python run.py --train --config=configs/<choose a config>.yaml --parallel_runs=<number of identical runs with different random seed>`
+Use `--train` to run training. For example 
+```
+python run.py --train --config=configs/breakout_config_frppo1.yaml --parallel_runs=1
+```
 
-Use the `--visualise` flag to run a visualisation of how a trained model performs.
+Use the `--visualise` flag to run a visualisation of how a trained model performs, for example
+```
+python run.py --visualise --config configs/breakout_config_frppo1.yaml --model logs_breakout/frppo1_breakout_latest_1_0_run_0_gpu_0.zip --vis_scaleup
+```
 
-Use the `--optuna` flag if your config file has an Optuna section for metaparameter tuning.
+Use the `--optuna` flag if your config file has an Optuna section for metaparameter tuning. 
+For example
+```
+python run.py --optuna --config configs/hopper_config_optuna_frppo0.yaml --parallel_runs 2
+```
 
