@@ -1,7 +1,7 @@
 
 
 # --- General Env ---
-env_name: "Walker2d-v5"
+env_name: "Hopper-v5"
 env_is_atari: false
 env_is_mujoco: true
 n_stack: 0
@@ -9,8 +9,8 @@ n_stack: 0
 # --- Training Parameters ---
 train:
   random_seed: 42
-  algo: "FRPPO"
-  run_id: "3" # for tensorboard logging
+  algo: "PPO"
+  run_id: "1" # for tensorboard logging
   policy: "default" # either "own" or "default"
   n_envs: 1 # Recommended for Mujoco
   n_steps: 2048 # Following the 37 implementation details of Proximal Policy Optimization
@@ -18,19 +18,20 @@ train:
   n_opt_epochs: 10 
   total_timesteps: 1000000
   ent_coef: 0.00 # Again following the 37 implementation details of Proximal Policy Optimization for mujoco
+  decay_lr_final_frac: 0.0
   decay_lr_init: 3e-4 # And same again
-  decay_lr_final_frac: 0.3 
-  fr_tau_penalty: 0.0001
-  fr_scale_by_adv: "up_only"
+  clip_epsilon: 0.1 # This should be their cliprange=0.2 and now equal to 0.2 as is common
+  fr_tau_penalty: 0.01
+  fr_scale_by_adv: true
   force_cpu: false
 
 # --- Logging & Saving ---
 logging:
-  log_dir: "./logs_walker2d/"
-  name_prefix: "frppo3_walker2d_latest"
+  log_dir: "./logs_hopper/"
+  name_prefix: "ppo1_hopper_latest"
   checkpoint_save_freq: 10000 # OverwriteCheckpointCallback save frequency
 
 # --- Visualization ---
 visualize:
-  video_folder: "videos_walker2d/"
+  video_folder: "videos_hopper/"
   deterministic: true

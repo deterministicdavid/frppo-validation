@@ -4,6 +4,7 @@ n_stack: 4
 
 # --- Training Parameters ---
 train:
+  random_seed: 42
   algo: "FRPPO"
   run_id: "0" # for tensorboard logging
   policy: "default" # either "own" or "default"

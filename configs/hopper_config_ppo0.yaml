@@ -8,6 +8,7 @@ n_stack: 0
 
 # --- Training Parameters ---
 train:
+  random_seed: 42
   algo: "PPO"
   run_id: "0" # for tensorboard logging
   policy: "default" # either "own" or "default"
@@ -27,7 +28,7 @@ train:
 # --- Logging & Saving ---
 logging:
   log_dir: "./logs_hopper/"
-  name_prefix: "ppo_hopper_latest"
+  name_prefix: "ppo0_hopper_latest"
   checkpoint_save_freq: 10000 # OverwriteCheckpointCallback save frequency
 
 # --- Visualization ---
