@@ -7,7 +7,7 @@
 env_name=beamrider
 
 # this must match the logdir specified in all the config files
-rm -rf ./logs_${env_name}/*
+# rm -rf ./logs_${env_name}/*
 
 for config_path in configs/${env_name}_config_*.yaml
 do

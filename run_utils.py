@@ -124,7 +124,7 @@ class OverwriteCheckpointCallback(BaseCallback):
         return True
 
 
-def get_free_cuda_gpus(max_count: int, force_cpu=False):
+def get_free_cuda_gpus(max_count: int, force_cpu=False, n_giga_needed=1):
     """
     Returns a list of torch devices for gpus with free memory
     """
@@ -159,18 +159,26 @@ def get_free_cuda_gpus(max_count: int, force_cpu=False):
         handle = pynvml.nvmlDeviceGetHandleByIndex(i)
         meminfo = pynvml.nvmlDeviceGetMemoryInfo(handle)
 
-        used_mem = int(meminfo.used)
+        free_mem = int(meminfo.free)
         # a bit of heuristic but will pretend that
         # any gpu that's using less than 0.5 GiB is
         # free
-        half_gigabyte = int((1024**3) / 2)
-        if used_mem < half_gigabyte:
+        gigabyte = int(1024**3)
+        if free_mem < n_giga_needed * gigabyte:
             device = torch.device(f"cuda:{i}")
             gpus_with_free_mem.append(device)
         if len(gpus_with_free_mem) >= max_count:
             break
-
-    return gpus_with_free_mem
+    
+    if len(gpus_with_free_mem) == 0:
+        print("Warning no GPUs meet the free mem requirement. Trying all.")
+        all_gpus = []
+        for i in gpu_indices:
+            device = torch.device(f"cuda:{i}")
+            all_gpus.append(device)
+        return all_gpus
+    else:
+        return gpus_with_free_mem
 
 
 def select_free_gpu_or_fallback(never_mps=False):
