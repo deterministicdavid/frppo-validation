@@ -14,3 +14,5 @@ python plots.py --figsize 6 3 --envname hopper --outfile ppo_vs_frppo_hopper.pdf
 python plots.py --figsize 6 3 --envname beamrider --outfile ppo_vs_frppo_beamrider.pdf --patterns PPO_0 PPO_1 FRPPO_0 FRPPO_1 FRPPO_2 
 
 python plots.py --figsize 6 3 --envname pong --outfile ppo_vs_frppo_pong.pdf --patterns PPO_0 PPO_1 FRPPO_0 FRPPO_1 
+
+python plots.py --figsize 6 3 --envname reacher --outfile ppo_vs_frppo_pong.pdf --patterns PPO_0 PPO_1 FRPPO_0 FRPPO_1 
