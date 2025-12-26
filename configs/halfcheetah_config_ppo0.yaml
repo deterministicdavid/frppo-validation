@@ -25,11 +25,11 @@ train:
 
 # --- Logging & Saving ---
 logging:
-  log_dir: "./logs_walker2d/"
-  name_prefix: "ppo0_walker2d_latest"
+  log_dir: "./logs_halfcheetah/"
+  name_prefix: "ppo0_halfcheetah_latest"
   checkpoint_save_freq: 10000 # OverwriteCheckpointCallback save frequency
 
 # --- Visualization ---
 visualize:
-  video_folder: "videos_walker2d/"
+  video_folder: "videos_halfcheetah/"
   deterministic: true

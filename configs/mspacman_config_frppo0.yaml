@@ -1,0 +1,32 @@
+# --- General Env ---
+env_name: "MsPacmanNoFrameskip-v4"
+n_stack: 4
+
+# --- Training Parameters ---
+train:
+  random_seed: 42
+  algo: "FRPPO"
+  run_id: "0" # for tensorboard logging
+  policy: "default" # either "own" or "default"
+  n_envs: 8 # Default number of parallel environments
+  n_steps: 128 # Following the 37 implementation details of Proximal Policy Optimization
+  batch_size: 256 # They say batch size nminibatches = 4 so 8 x 128 / 4 = 256
+  total_timesteps: 10000000
+  ent_coef: 0.01 # Again following the 37 implementation details of Proximal Policy Optimization
+  decay_lr_init: 2.3e-4
+  decay_lr_final_frac: 0.0 
+  fr_tau_penalty: 0.1
+  fr_scale_by_adv: false
+
+# --- Logging & Saving ---
+logging:
+  log_dir: "./logs_mspacman/"
+  name_prefix: "frppo0_mspacman_latest"
+  checkpoint_save_freq: 10000 # OverwriteCheckpointCallback save frequency
+
+# --- Visualization ---
+visualize:
+  video_folder: "videos_mspacman/"
+  deterministic: true
+
+

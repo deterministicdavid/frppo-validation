@@ -1,7 +1,7 @@
 
 
 # --- General Env ---
-env_name: "HalfCheetah-v5"
+env_name: "Swimmer-v5"
 env_is_atari: false
 env_is_mujoco: true
 n_stack: 0
@@ -25,11 +25,11 @@ train:
 
 # --- Logging & Saving ---
 logging:
-  log_dir: "./logs_walker2d/"
-  name_prefix: "ppo0_walker2d_latest"
+  log_dir: "./logs_swimmer/"
+  name_prefix: "ppo0_swimmer_latest"
   checkpoint_save_freq: 10000 # OverwriteCheckpointCallback save frequency
 
 # --- Visualization ---
 visualize:
-  video_folder: "videos_walker2d/"
+  video_folder: "videos_swimmer/"
   deterministic: true
