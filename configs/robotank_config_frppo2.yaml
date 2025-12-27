@@ -16,7 +16,7 @@ train:
   decay_lr_init: 2.3e-4
   decay_lr_final_frac: 0.0 
   fr_tau_penalty: 0.001
-  fr_scale_by_adv: "upanddown"
+  fr_scale_by_adv: false
 
 # --- Logging & Saving ---
 logging:

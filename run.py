@@ -575,7 +575,7 @@ if __name__ == "__main__":
             force_cpu = config["train"].get("force_cpu", False)
             
             gpus_to_use = []
-            if len(args.gpuids) > 0:
+            if args.gpuids is not None and len(args.gpuids) > 0:
                 gpuids_list = [int(x) for x in args.gpuids[0].split()]
                 gpus_to_use = check_selected_gpus(gpu_id_list=gpuids_list, max_count=args.parallel_runs, force_cpu=force_cpu)
             else:
