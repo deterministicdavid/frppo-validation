@@ -181,6 +181,36 @@ def get_free_cuda_gpus(max_count: int, force_cpu=False, n_giga_needed=1):
         return gpus_with_free_mem
 
 
+def check_selected_gpus(gpu_id_list: list, max_count: int, force_cpu=False):
+    gpus_to_use = []
+    if not torch.cuda.is_available():
+        if torch.backends.mps.is_available() and not force_cpu:
+            for _ in range(0, max_count):
+                device = torch.device("mps")
+                gpus_to_use.append(device)
+        else:
+            for _ in range(0, max_count):
+                device = torch.device("cpu")
+                gpus_to_use.append(device)
+        return gpus_to_use
+    elif force_cpu:
+        for _ in range(0, max_count):
+            device = torch.device("cpu")
+            gpus_to_use.append(device)
+        return gpus_to_use       
+    
+    device_count = torch.cuda.device_count()
+    for gpu_id in gpu_id_list:
+        if gpu_id < device_count:
+            device = torch.device(f"cuda:{gpu_id}")
+            gpus_to_use.append(device)
+    
+    if len(gpus_to_use) == 0:
+        raise ValueError(f"Gpu id list {gpu_id_list} doesn't match any GPUs.")
+
+    return gpus_to_use
+
+
 def select_free_gpu_or_fallback(never_mps=False):
     """
     Selects MPS on Arm Macs, on CUDA systems the GPU with the most free memory.
@@ -219,6 +249,8 @@ def select_free_gpu_or_fallback(never_mps=False):
 
     print(f"Selected device: {device}")
     return device
+
+
 
 
 def post_process_video(input_path: str, output_path: str, scale_factor: int = 4):

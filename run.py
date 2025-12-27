@@ -40,6 +40,7 @@ from run_utils import (
     ForceFloat32Wrapper,
     OverwriteCheckpointCallback,
     select_free_gpu_or_fallback,
+    check_selected_gpus,
     get_free_cuda_gpus,
     post_process_video,
     log_hyper_parameters,
@@ -539,6 +540,7 @@ if __name__ == "__main__":
         help="Maximum number of parallel training runs. Will be limited by the number of free GPUs.",
     )
     parser.add_argument("--optuna", action="store_true", help="Run hyperparameter optimization with Optuna.")
+    parser.add_argument("--gpuids", nargs="+", required=False, help="Specify gpu ids to use e.g. 0 3 4 5")
     
     args = parser.parse_args()
 
@@ -572,7 +574,12 @@ if __name__ == "__main__":
 
             force_cpu = config["train"].get("force_cpu", False)
             
-            gpus_to_use = get_free_cuda_gpus(max_count=args.parallel_runs, force_cpu=force_cpu)
+            gpus_to_use = []
+            if len(args.gpuids) > 0:
+                gpuids_list = [int(x) for x in args.gpuids[0].split()]
+                gpus_to_use = check_selected_gpus(gpu_id_list=gpuids_list, max_count=args.parallel_runs, force_cpu=force_cpu)
+            else:
+                gpus_to_use = get_free_cuda_gpus(max_count=args.parallel_runs, force_cpu=force_cpu)
         
             print(
                 f"Found {len(gpus_to_use)} free GPUs. Launching {args.parallel_runs} parallel runs."
