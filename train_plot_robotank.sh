@@ -3,12 +3,12 @@
 # we want to use python libraries from the env
 . venv/bin/activate
 
-env_name=breakout
+env_name=robotank
 
 # this must match the logdir specified in all the config files
 rm -rf ./logs_${env_name}/*
 
-for config_path in configs/${env_name}_config_*.yaml
+for config_path in $(ls -r configs/${env_name}_config_*.yaml)
 do
     echo "Starting training for $config_path..."
     python run.py --train --config="$config_path" --parallel_runs=12

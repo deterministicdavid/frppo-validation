@@ -14,6 +14,7 @@ python plots.py --figsize 6 3 --envname mspacman --outfile ppo_vs_frppo_mspacman
 
 python plots.py --figsize 6 3 --envname pong --outfile ppo_vs_frppo_pong.pdf --patterns PPO_0 PPO_1 FRPPO_0 FRPPO_1 
 
+python plots.py --figsize 6 3 --envname robotank --outfile ppo_vs_frppo_robotank.pdf  --patterns PPO_0 PPO_1 FRPPO_0 FRPPO_1
 
 # Individual plots Mujoco
 python plots.py --figsize 6 3 --envname walker2d --outfile ppo_vs_frppo_walker2d.pdf --patterns PPO_0 PPO_1 FRPPO_0 FRPPO_1  
@@ -29,6 +30,6 @@ python plots.py --figsize 6 3 --envname swimmer --outfile ppo_vs_frppo_swimmer.p
 python plots.py --figsize 6 3 --envname halfcheetah --outfile ppo_vs_frppo_halfcheetah.pdf --patterns PPO_0 PPO_1 FRPPO_0 FRPPO_1 
 
 # Grouped plots
-python ./multi_plots.py --envnames pong breakout beamrider mspacman --outfile ppo_vs_frppo_all_atari.pdf --figsize 11 5
+python ./multi_plots.py --envnames pong breakout beamrider mspacman robotank --outfile ppo_vs_frppo_all_atari.pdf --figsize 11 5
 
 python ./multi_plots.py --envnames invertedpendulum reacher hopper walker2d swimmer halfcheetah --outfile ppo_vs_frppo_all_mujoco.pdf --figsize 11 5
