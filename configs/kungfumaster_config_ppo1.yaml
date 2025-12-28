@@ -1,0 +1,31 @@
+# --- General Env ---
+env_name: "KungFuMasterNoFrameskip-v4"
+n_stack: 4
+
+# --- Training Parameters ---
+train:
+  random_seed: 42
+  algo: "PPO"
+  run_id: "1" 
+  policy: "default" # either "own" or "default"
+  n_envs: 8 # Default number of parallel environments
+  n_steps: 128 # Following the 37 implementation details of Proximal Policy Optimization
+  batch_size: 256 # They say batch size nminibatches = 4 so 8 x 128 / 4 = 256
+  total_timesteps: 10000000
+  ent_coef: 0.01 # Again following the 37 implementation details of Proximal Policy Optimization
+  decay_lr_init: 2.3e-4
+  decay_lr_final_frac: 0.0 
+  clip_epsilon: 0.2 
+
+# --- Logging & Saving ---
+logging:
+  log_dir: "./logs_kungfumaster/"
+  name_prefix: "ppo1_kungfumaster_latest"
+  checkpoint_save_freq: 10000 # OverwriteCheckpointCallback save frequency
+
+# --- Visualization ---
+visualize:
+  video_folder: "videos_kungfumaster/"
+  deterministic: true
+
+
