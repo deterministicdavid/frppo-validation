@@ -6,7 +6,7 @@ n_stack: 4
 train:
   random_seed: 42
   algo: "PPO"
-  run_id: "1" 
+  run_id: "0" 
   policy: "default" # either "own" or "default"
   n_envs: 8 # Default number of parallel environments
   n_steps: 128 # Following the 37 implementation details of Proximal Policy Optimization
@@ -20,7 +20,7 @@ train:
 # --- Logging & Saving ---
 logging:
   log_dir: "./logs_spaceinvaders/"
-  name_prefix: "ppo1_spaceinvaders_latest"
+  name_prefix: "ppo0_spaceinvaders_latest"
   checkpoint_save_freq: 10000 # OverwriteCheckpointCallback save frequency
 
 # --- Visualization ---
