@@ -6,7 +6,7 @@ n_stack: 4
 train:
   random_seed: 42
   algo: "FRPPO"
-  run_id: "2" # for tensorboard logging
+  run_id: "0" # for tensorboard logging
   policy: "default" # either "own" or "default"
   n_envs: 8 # Default number of parallel environments
   n_steps: 128 # Following the 37 implementation details of Proximal Policy Optimization
@@ -21,7 +21,7 @@ train:
 # --- Logging & Saving ---
 logging:
   log_dir: "./logs_beamrider/"
-  name_prefix: "frppo2_beamrider_latest"
+  name_prefix: "frppo0_beamrider_latest"
   checkpoint_save_freq: 10000 # OverwriteCheckpointCallback save frequency
 
 # --- Visualization ---

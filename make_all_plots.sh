@@ -8,7 +8,9 @@ echo "This assumes all training has run; if not empty plots will result"
 # Individual plots Atari
 python plots.py --figsize 6 3 --envname breakout --outfile ppo_vs_frppo_breakout.pdf --patterns PPO_0 PPO_1 FRPPO_0 FRPPO_1 
 
-python plots.py --figsize 6 3 --envname beamrider --outfile ppo_vs_frppo_beamrider.pdf --patterns PPO_0 PPO_1 FRPPO_1 FRPPO_2 
+python plots.py --figsize 6 3 --envname beamrider --outfile ppo_vs_frppo_beamrider.pdf --patterns PPO_0 PPO_1 FRPPO_0 FRPPO_1
+
+python plots.py --figsize 6 3 --envname kungfumaster --outfile ppo_vs_frppo_kungfumaster.pdf  --patterns PPO_0 PPO_1 FRPPO_0 FRPPO_1
 
 python plots.py --figsize 6 3 --envname mspacman --outfile ppo_vs_frppo_mspacman.pdf  --patterns PPO_0 PPO_1 FRPPO_0 FRPPO_1
 
@@ -30,6 +32,6 @@ python plots.py --figsize 6 3 --envname swimmer --outfile ppo_vs_frppo_swimmer.p
 python plots.py --figsize 6 3 --envname halfcheetah --outfile ppo_vs_frppo_halfcheetah.pdf --patterns PPO_0 PPO_1 FRPPO_0 FRPPO_1 
 
 # Grouped plots
-python ./multi_plots.py --envnames pong breakout beamrider mspacman robotank --outfile ppo_vs_frppo_all_atari.pdf --figsize 11 5
+python ./multi_plots.py --envnames breakout beamrider kungfumaster mspacman pong robotank --outfile ppo_vs_frppo_all_atari.pdf --figsize 11 5
 
 python ./multi_plots.py --envnames invertedpendulum reacher hopper walker2d swimmer halfcheetah --outfile ppo_vs_frppo_all_mujoco.pdf --figsize 11 5
