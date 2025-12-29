@@ -3,7 +3,7 @@
 # we want to use python libraries from the env
 . venv/bin/activate
 
-env_name=robotank
+env_name=spaceinvaders
 
 # this must match the logdir specified in all the config files
 rm -rf ./logs_${env_name}/*
