@@ -82,7 +82,13 @@ def make_env_mujoco(config: dict, seed: int):
 
     return _init
 
-def make_configured_vec_env(num_envs: int, config: dict, seed: int | None, training_mode=True, video_recording=False, stats_path=None, vec_normalize_data=None ):
+def make_configured_vec_env(num_envs: int, 
+                            config: dict, 
+                            seed: int | None, 
+                            training_mode=True, 
+                            video_recording=False, 
+                            stats_path=None, 
+                            vec_normalize_data=None):
     env_name = config["env_name"]
     env_is_atari = config.get("env_is_atari", True)
     env_is_mujoco = config.get("env_is_mujoco", False)
@@ -121,10 +127,10 @@ def make_configured_vec_env(num_envs: int, config: dict, seed: int | None, train
             return env
 
         env = make_vec_env(env_name, n_envs=num_envs, wrapper_class=custom_wrappers)
-        # env = VecMonitor(env, filename=None, info_keywords=())
-        env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_obs=10.0)
         
-        if not training_mode and stats_path is not None:
+        if training_mode:
+            env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_obs=10.0)
+        elif not training_mode and stats_path is not None:
             # Load the stats file
             if os.path.exists(stats_path):
                 print(f"Loading normalization stats from {stats_path}")
@@ -134,6 +140,7 @@ def make_configured_vec_env(num_envs: int, config: dict, seed: int | None, train
             else:
                 raise ValueError("ERROR: Stats file not found. Retraining required.")
         elif not training_mode and vec_normalize_data is not None:
+            env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_obs=10.0)
             print("Loading normalization stats directly from training environment.")
             # We copy the training environment's stats into the new evaluation environment
             env.obs_rms = vec_normalize_data.obs_rms
@@ -257,7 +264,7 @@ def make_configured_algo_and_model(env, config: dict, assigned_device: torch.dev
 
     return model
 
-def evaluate_model(model, config: dict, num_eval_runs: int = 25):
+def evaluate_model(model, config: dict, num_eval_runs: int = 25, stats_path = None):
     """
     Evaluates the trained model over multiple episodes using unnormalized rewards.
 
@@ -265,7 +272,7 @@ def evaluate_model(model, config: dict, num_eval_runs: int = 25):
         float: The mean unnormalized total reward across all evaluation runs.
     """
     env_is_mujoco = config.get("env_is_mujoco", False)
-    if env_is_mujoco:
+    if stats_path is None and env_is_mujoco:
         # we need to get vec normalize data from training env
         train_model_env = model.get_env()
         vec_normalize_from_training = unwrap_wrapper_diy(train_model_env, VecNormalize)
@@ -282,7 +289,8 @@ def evaluate_model(model, config: dict, num_eval_runs: int = 25):
         seed=None, # Use random seed for evaluation
         training_mode=False,
         video_recording=False,
-        vec_normalize_data=vec_normalize_from_training,
+        stats_path=stats_path,
+        vec_normalize_data=vec_normalize_from_training, 
     )
     
     all_episode_rewards = []
@@ -293,7 +301,7 @@ def evaluate_model(model, config: dict, num_eval_runs: int = 25):
         rewards = 0
         
         # Determine if we need to load VecNormalize stats (Mujoco only)
-        if env_is_mujoco:        
+        if stats_path is None and env_is_mujoco:        
             normalized_env = unwrap_wrapper_diy(eval_env, VecNormalize)
             assert normalized_env is not None
             if normalized_env is not None and normalized_env.norm_reward:
@@ -460,7 +468,10 @@ def train(config: dict, assigned_device: torch.device, seed: int, extra_callback
     
     
     n_eval_runs = 20
-    final_score = evaluate_model(model=model, config=config, num_eval_runs=n_eval_runs)
+    final_score = evaluate_model(model=model, 
+                                 config=config, 
+                                 num_eval_runs=n_eval_runs, 
+                                )
     print(f"Evaluation with {n_eval_runs} runs, reward: {final_score}")
     return final_score
 

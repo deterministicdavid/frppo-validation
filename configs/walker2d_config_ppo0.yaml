@@ -1,7 +1,7 @@
 
 
 # --- General Env ---
-env_name: "HalfCheetah-v5"
+env_name: "Walker2d-v5"
 env_is_atari: false
 env_is_mujoco: true
 n_stack: 0
