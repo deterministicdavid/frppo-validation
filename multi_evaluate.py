@@ -4,6 +4,7 @@ import glob
 import yaml
 import pandas as pd
 import numpy as np
+import torch
 from stable_baselines3 import PPO
 from sb3_contrib import FRPPO
 
@@ -34,6 +35,8 @@ def run_evaluation_and_process(config_file_list: list, eval_episodes: int):
         elif env_name.casefold() != common_env_name.casefold():
             raise ValueError(f"Trying to compare rewards of {common_env_name} and {env_name} which makes no sense.")
 
+        env_is_mujoco = config.get("env_is_mujoco", False)
+
         # Safe access to nested keys
         train_config = config.get("train", {})
         log_config = config.get("logging", {})
@@ -61,16 +64,26 @@ def run_evaluation_and_process(config_file_list: list, eval_episodes: int):
         # 3. Iterate over found models
         for model_path in zip_files:
             file_name = os.path.basename(model_path)
-            
+            lr_schedule = lambda f: 1.0 # doesn't matter we're not learning
             try:
-                # Load the model (without env, evaluate_model handles env creation)
+                # Load to CPU (without env, evaluate_model handles env creation)
                 if algo_name == "PPO":
-                    model = PPO.load(model_path)
+                    model = PPO.load(model_path,device="cpu", custom_objects={
+                                                                        "learning_rate": lr_schedule,
+                                                                        "lr_schedule": lr_schedule})
                 elif algo_name == "FRPPO":
-                    model = FRPPO.load(model_path)
+                    model = FRPPO.load(model_path,device="cpu",custom_objects={
+                                                                        "learning_rate": lr_schedule,
+                                                                        "lr_schedule": lr_schedule})
                 else:
                     print(f"Unknown algorithm '{algo_name}' in {conf_path}. Skipping.")
                     break # Skip other files for this invalid config
+                
+                if not env_is_mujoco:
+                    # Move to GPU
+                    new_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                    model.policy.to(new_device)
+                    model.device = new_device
 
                 # Note: evaluate_model inside run.py will handle loading stats if appropriate i.e if the env is mujoco
                 stats_path = os.path.join(os.path.dirname(model_path), f"{os.path.basename(model_path).replace('.zip', '')}_env.pkl")
