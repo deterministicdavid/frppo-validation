@@ -20,10 +20,10 @@ for pattern in "${mujoco_envs[@]}"
 do
     echo "Processing configs for pattern: $pattern"
     
-    # python multi_evaluate.py \
-    #     --eval_episodes=$eval_runs \
-    #     --all_results_file=mujoco_all_results.csv \
-    #     --config_files="./configs/$pattern"
+    python multi_evaluate.py \
+        --eval_episodes=$eval_runs \
+        --all_results_file=mujoco_all_results.csv \
+        --config_files="./configs/$pattern"
         
     echo "---------------------------------------------------"
 done

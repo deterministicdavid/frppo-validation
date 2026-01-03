@@ -182,7 +182,7 @@ def main():
     parser = argparse.ArgumentParser(description="Batch evaluate models based on config files.")
     
     # CHANGED: Now accepts a list of config files instead of envnames + base config
-    parser.add_argument("--config_files", nargs="+", required=True, 
+    parser.add_argument("--config_files", nargs="+", required=False, 
                         help="List of YAML config files (e.g. configs/beamrider_config.yaml)")
     
     parser.add_argument("--eval_episodes", type=int, default=20, 
@@ -197,57 +197,73 @@ def main():
         print("Need --all_results_file argument")
         exit(1)
 
-    config_file_list = []
-    for pattern in args.config_files:
-        # glob.glob returns a list of matching paths (or empty list if none)
-        # If pattern is a specific filename without *, it just returns [filename] if it exists
-        matches = glob.glob(pattern)
-        if not matches:
-            print(f"Warning: No files matched pattern '{pattern}'")
-        config_file_list.extend(matches)
-    
-    # Remove duplicates and sort for consistent order
-    config_file_list = sorted(list(set(config_file_list)))
-    
-    if not config_file_list:
-        print("Error: No valid config files found.")
-        exit(1)
-    
-    print(f"Found {len(config_file_list)} config files to process.")
+    if args.config_files:
+        config_file_list = []
+        for pattern in args.config_files:
+            # glob.glob returns a list of matching paths (or empty list if none)
+            # If pattern is a specific filename without *, it just returns [filename] if it exists
+            matches = glob.glob(pattern)
+            if not matches:
+                print(f"Warning: No files matched pattern '{pattern}'")
+            config_file_list.extend(matches)
+        
+        # Remove duplicates and sort for consistent order
+        config_file_list = sorted(list(set(config_file_list)))
+        
+        if not config_file_list:
+            print("Error: No valid config files found.")
+            exit(1)
+        
+        print(f"Found {len(config_file_list)} config files to process.")
 
 
 
-    summary = run_evaluation_and_process(config_file_list=config_file_list, eval_episodes=args.eval_episodes)
-    
-    print(f"\nProcessing global results file: {args.all_results_file}")
-    
-    
-    # 2. Rename columns for clarity in global file
-    summary_to_save = summary.rename(columns={'mean': 'avg_norm_reward'})
-    
-    # 3. Reorder columns
-    cols_order = ['env', 'algo', 'run_id', 'avg_norm_reward', 'count']
-    summary_to_save = summary_to_save[cols_order]
+        summary = run_evaluation_and_process(config_file_list=config_file_list, eval_episodes=args.eval_episodes)
+        
+        print(f"\nProcessing global results file: {args.all_results_file}")
+        
+        
+        # 2. Rename columns for clarity in global file
+        summary_to_save = summary.rename(columns={'mean': 'avg_norm_reward'})
+        
+        # 3. Reorder columns
+        cols_order = ['env', 'algo', 'run_id', 'avg_norm_reward', 'count']
+        summary_to_save = summary_to_save[cols_order]
 
-    # 4. Load existing or create new
-    if os.path.exists(args.all_results_file):
-        try:
-            existing_df = pd.read_csv(args.all_results_file, dtype={'run_id': str})
-            combined_df = pd.concat([existing_df, summary_to_save], ignore_index=True)
-            updated_df = combined_df.drop_duplicates(subset=['env', 'algo', 'run_id'], keep='last')
-        except Exception as e:
-            print(f"Error reading existing file {args.all_results_file}: {e}")
-            print("Creating a new file instead.")
+        # 4. Load existing or create new
+        if os.path.exists(args.all_results_file):
+            try:
+                existing_df = pd.read_csv(args.all_results_file, dtype={'run_id': str})
+                combined_df = pd.concat([existing_df, summary_to_save], ignore_index=True)
+                updated_df = combined_df.drop_duplicates(subset=['env', 'algo', 'run_id'], keep='last')
+            except Exception as e:
+                print(f"Error reading existing file {args.all_results_file}: {e}")
+                print("Creating a new file instead.")
+                updated_df = summary_to_save
+        else:
+            print("File does not exist. Creating new one.")
             updated_df = summary_to_save
+
+        # 5. Write back
+        updated_df.to_csv(args.all_results_file, index=False)
+        print(f"Successfully appended summary to {args.all_results_file}")
     else:
-        print("File does not exist. Creating new one.")
-        updated_df = summary_to_save
+        print("\nNo config files provided. Skipping evaluation.")
+        if os.path.exists(args.all_results_file):
+            print(f"Loading existing results from {args.all_results_file}")
+            try:
+                updated_df = pd.read_csv(args.all_results_file, dtype={'run_id': str})
+            except Exception as e:
+                print(f"Error reading file: {e}")
+                exit(1)
+        else:
+            print(f"Error: {args.all_results_file} does not exist and no config files provided.")
+            exit(1)
+    
+    if updated_df is None or updated_df.empty:
+        print(f"No data either from evaluation or from {args.all_results_file}.")
+        exit(1)
 
-    # 5. Write back
-    updated_df.to_csv(args.all_results_file, index=False)
-    print(f"Successfully appended summary to {args.all_results_file}")
-
-    # --- NEW: COMPARATIVE SUMMARY ---
     print("\n" + "="*60)
     print("GLOBAL COMPARISON (PPO vs FRPPO)")
     print("="*60)
@@ -258,34 +274,75 @@ def main():
 
     # 2. Environment Wins
     # Group by Environment and Algo to sum rewards for that specific env
-    # (This handles cases where you might have multiple run_ids per algo per env)
     env_scores = updated_df.groupby(['env', 'algo'])['avg_norm_reward'].sum().unstack()
-
-    # Count wins
-    # We check if PPO column > FRPPO column. 
-    # fillna(0) ensures we don't crash if an algo is missing for an env
     env_scores = env_scores.fillna(0)
     
     ppo_better_count = 0
     frppo_better_count = 0
-    
+    ppo_envs = []
+    frppo_envs = []
+
     if 'PPO' in env_scores.columns and 'FRPPO' in env_scores.columns:
-        ppo_better_count = (env_scores['PPO'] > env_scores['FRPPO']).sum()
-        frppo_better_count = (env_scores['FRPPO'] > env_scores['PPO']).sum()
+        ppo_wins_mask = env_scores['PPO'] > env_scores['FRPPO']
+        frppo_wins_mask = env_scores['FRPPO'] > env_scores['PPO']
+        
+        ppo_better_count = ppo_wins_mask.sum()
+        frppo_better_count = frppo_wins_mask.sum()
+        
+        ppo_envs = env_scores.index[ppo_wins_mask].tolist()
+        frppo_envs = env_scores.index[frppo_wins_mask].tolist()
+        
     elif 'PPO' in env_scores.columns:
-         # Only PPO exists
-         ppo_better_count = len(env_scores)
+            ppo_better_count = len(env_scores)
+            ppo_envs = env_scores.index.tolist()
     elif 'FRPPO' in env_scores.columns:
-         # Only FRPPO exists
-         frppo_better_count = len(env_scores)
+            frppo_better_count = len(env_scores)
+            frppo_envs = env_scores.index.tolist()
 
     print(f"Total Normalized Reward (PPO)   : {total_ppo_reward:.4f}")
     print(f"Total Normalized Reward (FRPPO) : {total_frppo_reward:.4f}")
     print("-" * 60)
     print(f"Environments where PPO > FRPPO  : {ppo_better_count}")
+    print(f"  List: {', '.join(ppo_envs)}")
+    print("-" * 60)
     print(f"Environments where FRPPO > PPO  : {frppo_better_count}")
+    print(f"  List: {', '.join(frppo_envs)}")
     print("="*60 + "\n")
 
+
+    print("-" * 80)
+    
+    # Group by Environment and Algo to find MAX reward for that specific env
+    env_max_scores = updated_df.groupby(['env', 'algo'])['avg_norm_reward'].max().unstack()
+    env_max_scores = env_max_scores.fillna(0)
+
+    ppo_better_max_count = 0
+    frppo_better_max_count = 0
+    ppo_max_envs = []
+    frppo_max_envs = []
+
+    if 'PPO' in env_max_scores.columns and 'FRPPO' in env_max_scores.columns:
+        ppo_max_mask = env_max_scores['PPO'] > env_max_scores['FRPPO']
+        frppo_max_mask = env_max_scores['FRPPO'] > env_max_scores['PPO']
+        
+        ppo_better_max_count = ppo_max_mask.sum()
+        frppo_better_max_count = frppo_max_mask.sum()
+        
+        ppo_max_envs = env_max_scores.index[ppo_max_mask].tolist()
+        frppo_max_envs = env_max_scores.index[frppo_max_mask].tolist()
+        
+    elif 'PPO' in env_max_scores.columns:
+            ppo_better_max_count = len(env_max_scores)
+            ppo_max_envs = env_max_scores.index.tolist()
+    elif 'FRPPO' in env_max_scores.columns:
+            frppo_better_max_count = len(env_max_scores)
+            frppo_max_envs = env_max_scores.index.tolist()
+
+    print(f"Environments where PPO Max > FRPPO Max  : {ppo_better_max_count}")
+    print(f"  List: {', '.join(ppo_max_envs)}")
+    print(f"Environments where FRPPO Max > PPO Max  : {frppo_better_max_count}")
+    print(f"  List: {', '.join(frppo_max_envs)}")
+    print("="*80 + "\n")
 
 if __name__ == "__main__":
     main()
