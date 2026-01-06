@@ -11,6 +11,8 @@ The repo contains code for validating performance of FR-PPO.
 
 ## General use
 
+Everything is in `run.py`. It will try to use a cuda device and if there are multiple GPUs you can choose which using `--gpuids` e.g. `--gpuids 0 2 5` with numbers corresponding to what you see on `nvidia-smi`. 
+
 Use `--train` to run training. For example 
 ```
 python run.py --train --config=configs/breakout_config_frppo1.yaml --parallel_runs=1
@@ -27,3 +29,8 @@ For example
 python run.py --optuna --config configs/hopper_config_optuna_frppo0.yaml --parallel_runs 2
 ```
 
+## Reproducing training curves and evaluation tables
+
+1. Run `train_plot_<env_name>.sh` for the environment you want to train (if you want all plots and results then it has to eventually be all).
+1. Run `make_all_plot.sh` to obtain the training curve plots. If you skipped some environments in the previous step then those plots will come out empty.
+1. Run `make_all_summary_data.sh` to run evaluations of trained policies and produce the tables used for comparison. 
