@@ -22,7 +22,7 @@ train:
   decay_lr_final_frac: 0.3 
   fr_tau_penalty: 0.1
   fr_scale_by_adv: true
-  force_cpu: false
+  force_cpu: true
 
 # --- Logging & Saving ---
 logging:

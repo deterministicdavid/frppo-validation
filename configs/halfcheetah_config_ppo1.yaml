@@ -19,7 +19,7 @@ train:
   decay_lr_init: 3e-4 # And same again
   decay_lr_final_frac: 0.3 
   clip_epsilon: 0.1
-  force_cpu: false
+  force_cpu: true
 
 # --- Logging & Saving ---
 logging:

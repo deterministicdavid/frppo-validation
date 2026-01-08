@@ -20,9 +20,9 @@ train:
   ent_coef: 0.00 # Again following the 37 implementation details of Proximal Policy Optimization for mujoco
   decay_lr_init: 3e-4 # And same again
   decay_lr_final_frac: 0.3
-  fr_tau_penalty: 0.0005
+  fr_tau_penalty: 0.05
   fr_scale_by_adv: true
-  force_cpu: false
+  force_cpu: true
 
 # --- Logging & Saving ---
 logging:

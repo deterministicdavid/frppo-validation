@@ -4,8 +4,7 @@ The repo contains code for validating performance of FR-PPO.
 
 ## Getting started
 
-
-1. Create a Python virtual environment with PIP and add `torch`, `numpy`, `matplotlib` and all the Farama `gymnasium` with Atari and Mujoco support. 
+1. Create a Python virtual environment with PIP and add `torch`, `numpy`, `matplotlib` and all the Farama `gymnasium` with Atari and Mujoco support. More detail at the bottom of the readme.
 1. Next you need a local copy of SB3 with FR-PPO implementation. If you got here via my github then go to my projects and find `stable-baselines3-contrib-with-frppo`. Otherwise download the [anonymyzed version](https://anonymous.4open.science/r/sb3-contrib-frppo/). 
 1. Add the local copy of SB3 to your Python virtual environment.
 
@@ -34,3 +33,21 @@ python run.py --optuna --config configs/hopper_config_optuna_frppo0.yaml --paral
 1. Run `train_plot_<env_name>.sh` for the environment you want to train (if you want all plots and results then it has to eventually be all).
 1. Run `make_all_plot.sh` to obtain the training curve plots. If you skipped some environments in the previous step then those plots will come out empty.
 1. Run `make_all_summary_data.sh` to run evaluations of trained policies and produce the tables used for comparison. 
+
+## Virtual env and packages
+
+On a Linux or MacOS these steps may work.
+
+```
+python -m venv venv
+source venv/bin/activate 
+pip install torch numpy scipy matplotlib pandas 
+pip install "gymnasium[atari,accept-rom-license,mujoco]"
+pip install PyYAML
+pip install nvidia-ml-py
+pip install optuna optuna-integration[pytorch_lightning]  
+pip install tensorboard
+pip install moviepy
+pip install opencv-python
+pip install -e "../stable-baselines3-contrib-with-frppo/"
+```
