@@ -6,7 +6,7 @@ n_stack: 4
 train:
   random_seed: 42
   algo: "FRPPO"
-  run_id: "1" 
+  run_id: "2" 
   policy: "default" # either "own" or "default"
   n_envs: 8 # Default number of parallel environments
   n_steps: 128 # Following the 37 implementation details of Proximal Policy Optimization
@@ -15,14 +15,14 @@ train:
   ent_coef: 0.01 # Again following the 37 implementation details of Proximal Policy Optimization
   decay_lr_init: 2.3e-4
   decay_lr_final_frac: 0.0 
-  fr_tau_penalty: 0.05
+  fr_tau_penalty: 0.2
   fr_scale_by_adv: true
   
 
 # --- Logging & Saving ---
 logging:
   log_dir: "./logs_pong/"
-  name_prefix: "frppo1_pong_latest"
+  name_prefix: "frppo2_pong_latest"
   checkpoint_save_freq: 10000 # OverwriteCheckpointCallback save frequency
 
 # --- Visualization ---
