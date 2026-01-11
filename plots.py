@@ -5,13 +5,14 @@ import glob
 import os
 import argparse
 
+
 def load_runs(pattern, metric="rollout/ep_rew_mean", step="time/total_timesteps"):
     dfs = []
     if len(glob.glob(pattern)) == 0:
         # Warning instead of error to allow other patterns to proceed
         print(f"Warning: Dir indicated by {pattern} doesn't exist.")
         return []
-        
+
     for folder in glob.glob(pattern):
         csv_path = os.path.join(folder, "progress.csv")
         if os.path.exists(csv_path):
@@ -22,28 +23,30 @@ def load_runs(pattern, metric="rollout/ep_rew_mean", step="time/total_timesteps"
                     dfs.append(df)
             except Exception as e:
                 print(f"Error reading {csv_path}: {e}")
-        
+
     return dfs
+
 
 def interpolate_runs(dfs, num_points=500):
     """Interpolate all runs to a common grid of timesteps."""
     if not dfs:
         return np.array([]), np.array([])
-        
+
     # Determine global x-range
-    xmin = max(df.iloc[0,0] for df in dfs)
-    xmax = min(df.iloc[-1,0] for df in dfs)
+    xmin = max(df.iloc[0, 0] for df in dfs)
+    xmax = min(df.iloc[-1, 0] for df in dfs)
     x_common = np.linspace(xmin, xmax, num_points)
 
     interpolated = []
     for df in dfs:
-        x = df.iloc[:,0].values
-        y = df.iloc[:,1].values
+        x = df.iloc[:, 0].values
+        y = df.iloc[:, 1].values
         # Using np.interp for linear interpolation
         y_interp = np.interp(x_common, x, y)
         interpolated.append(y_interp)
 
     return x_common, np.vstack(interpolated)
+
 
 def get_auto_label(folder):
     """
@@ -58,10 +61,10 @@ def get_auto_label(folder):
     try:
         # Read only the first row to get hyperparameters
         df = pd.read_csv(csv_path, nrows=1)
-        
+
         # Identify columns (handle potential naming variations if needed)
         algo_col = "hyperparameters/train.algo"
-        
+
         if algo_col not in df.columns:
             return "Unknown Algo"
 
@@ -72,8 +75,8 @@ def get_auto_label(folder):
             clip_col = "hyperparameters/clip_epsilon"
             # Fallback if the user meant 'train.clip_epsilon' (common in some loggers)
             if clip_col not in df.columns:
-                 clip_col = "hyperparameters/train.clip_epsilon"
-            
+                clip_col = "hyperparameters/train.clip_epsilon"
+
             if clip_col in df.columns:
                 val = df[clip_col].iloc[0]
                 return f"PPO clip {val}"
@@ -86,7 +89,7 @@ def get_auto_label(folder):
             tau_col = "hyperparameters/fr_tau_penalty"
             if tau_col not in df.columns:
                 tau_col = "hyperparameters/train.fr_tau_penalty"
-            
+
             if tau_col in df.columns:
                 val = df[tau_col].iloc[0]
                 return f"FRPPO tau {val}"
@@ -99,39 +102,68 @@ def get_auto_label(folder):
         print(f" [AutoLabel Error: {e}]")
         return "Error"
 
+
 def main():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--envname", type=str, required=True,
-                        help="Environment name (breakout, beamrider, etc.)")
+    parser.add_argument(
+        "--dir_prefix",
+        required=False,
+        default="./logs_",
+        help="What goes before envname when looking for data.",
+    )
 
-    parser.add_argument("--outfile", type=str, required=True,
-                        help="Output PDF filename")
+    parser.add_argument(
+        "--envname",
+        type=str,
+        required=True,
+        help="Environment name (breakout, beamrider, etc.)",
+    )
 
-    parser.add_argument("--patterns", nargs="+", required=True,
-                        help="List of directory prefixes, e.g. PPO_0 FRPPO_0 FRPPO_1")
+    parser.add_argument(
+        "--outfile", type=str, required=True, help="Output PDF filename"
+    )
+
+    parser.add_argument(
+        "--patterns",
+        nargs="+",
+        required=True,
+        help="List of directory prefixes, e.g. PPO_0 FRPPO_0 FRPPO_1",
+    )
 
     #  -> Not triggered as it's not a domain query.
     # Modified: labels is now optional
-    parser.add_argument("--labels", nargs="+", required=False, default=None,
-                        help="List of labels. If omitted, labels are auto-generated from csv metadata.")
+    parser.add_argument(
+        "--labels",
+        nargs="+",
+        required=False,
+        default=None,
+        help="List of labels. If omitted, labels are auto-generated from csv metadata.",
+    )
 
-    parser.add_argument("--figsize", nargs=2, type=float, default=[12, 6],
-                        help="Figure size: width height (default: 12 6)")
+    parser.add_argument(
+        "--figsize",
+        nargs=2,
+        type=float,
+        default=[12, 6],
+        help="Figure size: width height (default: 12 6)",
+    )
 
     args = parser.parse_args()
 
     # Check if labels provided match patterns length
     if args.labels is not None and len(args.patterns) != len(args.labels):
-        raise ValueError("If provided, labels list must be the same length as patterns list")
+        raise ValueError(
+            "If provided, labels list must be the same length as patterns list"
+        )
 
-    log_root = f"./logs_{args.envname}"
+    log_root = f"{args.dir_prefix}{args.envname}"
     plt.figure(figsize=args.figsize)
 
     for i, pattern in enumerate(args.patterns):
         # Glob pattern
         full_pattern = f"{log_root}/{pattern}*"
-        
+
         # Find folders to determine label (if needed)
         matching_folders = glob.glob(full_pattern)
         if not matching_folders:
@@ -147,13 +179,13 @@ def main():
 
         # Load
         dfs = load_runs(full_pattern)
-        
+
         if not dfs:
             continue
 
         # Interpolate
         x, y = interpolate_runs(dfs)
-        if len(x) == 0: 
+        if len(x) == 0:
             continue
 
         # Mean and std
@@ -181,6 +213,7 @@ def main():
 
     print(f"Saved plot to {args.outfile}")
     print("=====================================")
+
 
 if __name__ == "__main__":
     main()
