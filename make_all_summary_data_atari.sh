@@ -5,7 +5,7 @@
 
 echo "This assumes all training has run; otherwise it will fail on model loading."
 
-eval_runs=20
+eval_runs=40
 
 atari_envs=(
     "beamrider_config_*"
@@ -20,11 +20,7 @@ for pattern in "${atari_envs[@]}"
 do
     echo "Processing configs for pattern: $pattern"
     
-    python multi_evaluate.py \
-        --eval_episodes=$eval_runs \
-        --all_results_file=atari_all_results.csv \
-        --config_files="./configs/$pattern"
-        
+    python multi_evaluate.py --parallel_runs=12 --eval_episodes=$eval_runs --all_results_file=atari_all_results.csv --config_files="./configs/$pattern" 
     echo "---------------------------------------------------"
 done
 

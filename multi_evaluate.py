@@ -5,14 +5,95 @@ import yaml
 import pandas as pd
 import numpy as np
 import torch
+import multiprocessing as mp
 from stable_baselines3 import PPO
 from sb3_contrib import FRPPO
 
 from run import evaluate_model
 
 
+def run_single_model_eval(config, model_path: str, algo_name: str, conf_path: str, eval_episodes: int, env_is_mujoco: bool):
+    lr_schedule = lambda f: 1.0  # doesn't matter we're not learning
+    
+    # Load to CPU (without env, evaluate_model handles env creation)
+    if algo_name == "PPO":
+        model = PPO.load(
+            model_path,
+            device="cpu",
+            custom_objects={
+                "learning_rate": lr_schedule,
+                "lr_schedule": lr_schedule,
+            },
+        )
+    elif algo_name == "FRPPO":
+        model = FRPPO.load(
+            model_path,
+            device="cpu",
+            custom_objects={
+                "learning_rate": lr_schedule,
+                "lr_schedule": lr_schedule,
+            },
+        )
+    else:
+        raise ValueError(f"Unknown algorithm '{algo_name}' in {conf_path}. Skipping.")
+        
+
+    if not env_is_mujoco:
+        # Move to GPU
+        new_device = torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
+        model.policy.to(new_device)
+        model.device = new_device
+
+    # Note: evaluate_model inside run.py will handle loading stats if appropriate i.e if the env is mujoco
+    stats_path = os.path.join(
+        os.path.dirname(model_path),
+        f"{os.path.basename(model_path).replace('.zip', '')}_env.pkl",
+    )
+    mean_reward = evaluate_model(
+        model=model,
+        config=config,
+        num_eval_runs=eval_episodes,
+        stats_path=stats_path,
+    )
+    del model
+    return mean_reward
+
+
+# Wrapper for multiprocessing to handle multiple arguments
+def _run_single_model_eval_worker_func(args):
+    # unpack arguments
+    config, model_path, algo_name, conf_path, eval_episodes, env_is_mujoco, env_name, run_id, file_name = args
+    try:
+        mean_reward = run_single_model_eval(
+            config=config,
+            model_path=model_path, 
+            algo_name=algo_name,
+            conf_path=conf_path,
+            eval_episodes=eval_episodes,
+            env_is_mujoco=env_is_mujoco
+        )
+        return {
+            "success": True,
+            "mean_reward": mean_reward,
+            "env": env_name,
+            "file": file_name,
+            "algo": algo_name,
+            "run_id": run_id,
+            "full_path": model_path,
+            "config_file": conf_path
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "env": env_name,
+            "file": file_name
+        }
+
 def run_evaluation_and_process(
-    config_file_list: list, dir_prefix: str, eval_episodes: int
+    config_file_list: list, dir_prefix: str, eval_episodes: int, parallel_runs: int
 ):
     results = []
 
@@ -20,6 +101,7 @@ def run_evaluation_and_process(
     print("-" * 90)
 
     common_env_name = None
+    tasks = [] # List to hold all tasks for parallel execution
 
     for conf_path in config_file_list:
         if not os.path.exists(conf_path):
@@ -67,72 +149,47 @@ def run_evaluation_and_process(
             )
             continue
 
-        # 3. Iterate over found models
+        # Prepare arguments for each file
         for model_path in zip_files:
             file_name = os.path.basename(model_path)
-            lr_schedule = lambda f: 1.0  # doesn't matter we're not learning
-            try:
-                # Load to CPU (without env, evaluate_model handles env creation)
-                if algo_name == "PPO":
-                    model = PPO.load(
-                        model_path,
-                        device="cpu",
-                        custom_objects={
-                            "learning_rate": lr_schedule,
-                            "lr_schedule": lr_schedule,
-                        },
-                    )
-                elif algo_name == "FRPPO":
-                    model = FRPPO.load(
-                        model_path,
-                        device="cpu",
-                        custom_objects={
-                            "learning_rate": lr_schedule,
-                            "lr_schedule": lr_schedule,
-                        },
-                    )
-                else:
-                    print(f"Unknown algorithm '{algo_name}' in {conf_path}. Skipping.")
-                    break  # Skip other files for this invalid config
+            # Create a tuple of arguments for the worker function
+            task_args = (
+                config, 
+                model_path, 
+                algo_name, 
+                conf_path, 
+                eval_episodes, 
+                env_is_mujoco, 
+                env_name, 
+                run_id, 
+                file_name
+            )
+            tasks.append(task_args)
 
-                if not env_is_mujoco:
-                    # Move to GPU
-                    new_device = torch.device(
-                        "cuda" if torch.cuda.is_available() else "cpu"
-                    )
-                    model.policy.to(new_device)
-                    model.device = new_device
+    # --- Phase 2: Execute tasks in parallel ---
+    if not tasks:
+        print("No tasks to execute.")
+        exit(1)
 
-                # Note: evaluate_model inside run.py will handle loading stats if appropriate i.e if the env is mujoco
-                stats_path = os.path.join(
-                    os.path.dirname(model_path),
-                    f"{os.path.basename(model_path).replace('.zip', '')}_env.pkl",
-                )
-                mean_reward = evaluate_model(
-                    model=model,
-                    config=config,
-                    num_eval_runs=eval_episodes,
-                    stats_path=stats_path,
-                )
-
+    print(f"Starting evaluation of {len(tasks)} models using {parallel_runs} parallel processes...")
+    
+    # Use multiprocessing Pool
+    with mp.Pool(processes=parallel_runs) as pool:
+        # imap_unordered yields results as soon as they complete
+        for result in pool.imap_unordered(_run_single_model_eval_worker_func, tasks):
+            if result["success"]:
+                mean_reward = result["mean_reward"]
+                env_name = result["env"]
+                file_name = result["file"]
+                
                 print(f"{env_name:<20} | {file_name:<50} | {mean_reward:>10.2f}")
-
-                results.append(
-                    {
-                        "config_file": conf_path,
-                        "env": env_name,
-                        "file": file_name,
-                        "mean_reward": mean_reward,
-                        "algo": algo_name,
-                        "run_id": run_id,
-                        "full_path": model_path,
-                    }
-                )
-
-                del model
-
-            except Exception as e:
-                print(f"{env_name:<20} | {file_name:<50} | ERROR: {e}")
+                
+                results.append(result)
+            else:
+                env_name = result["env"]
+                file_name = result["file"]
+                error_msg = result["error"]
+                print(f"{env_name:<20} | {file_name:<50} | ERROR: {error_msg}")
 
     if len(results) == 0:
         print("No results generated.")
@@ -219,8 +276,21 @@ def run_evaluation_and_process(
 
 
 def main():
+    # Set start method to spawn for better compatibility with PyTorch/CUDA in multiprocessing
+    try:
+        mp.set_start_method("spawn", force=True)
+    except RuntimeError:
+        pass
+
     parser = argparse.ArgumentParser(
         description="Batch evaluate models based on config files."
+    )
+
+    parser.add_argument(
+        "--parallel_runs",
+        type=int,
+        default=1,
+        help="Number of parallel processes to use for evaluation",
     )
 
     parser.add_argument(
@@ -280,6 +350,7 @@ def main():
             config_file_list=config_file_list,
             dir_prefix=args.dir_prefix,
             eval_episodes=args.eval_episodes,
+            parallel_runs=args.parallel_runs,
         )
 
         print(f"\nProcessing global results file: {args.all_results_file}")
