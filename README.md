@@ -32,7 +32,7 @@ python run.py --optuna --config configs/hopper_config_optuna_frppo0.yaml --paral
 
 1. Run `train_plot_<env_name>.sh` for the environment you want to train (if you want all plots and results then it has to eventually be all).
 1. Run `make_all_plot.sh` to obtain the training curve plots. If you skipped some environments in the previous step then those plots will come out empty.
-1. Run `make_all_summary_data.sh` to run evaluations of trained policies and produce the tables used for comparison. 
+1. Run `make_all_summary_data_atari.sh` and `make_all_summary_data_mujoco.sh` to run evaluations of trained policies and produce the tables used for comparison. 
 
 ## Virtual env and packages
 
