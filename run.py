@@ -149,7 +149,15 @@ def make_configured_vec_env(
                 env = ForceFloat32Wrapper(env)
             return env
 
-        env = make_vec_env(env_name, n_envs=num_envs, wrapper_class=custom_wrappers)
+        if not video_recording:
+            env_kwargs={"render_mode": None}
+        else:
+            env_kwargs={}
+        env = make_vec_env(env_name, 
+                           n_envs=num_envs, 
+                           seed=seed,
+                           wrapper_class=custom_wrappers,
+                           env_kwargs=env_kwargs)
 
         if training_mode:
             env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_obs=10.0)
@@ -700,7 +708,7 @@ if __name__ == "__main__":
                     "No random seed given in config, env and model will use random initialisation."
                 )
             else:
-                print(f"Using {seed} as random seed for env and model.")
+                print(f"Using {seed} as initial random seed for env and model; parallel runs increment this value.")
 
             force_cpu = config["train"].get("force_cpu", False)
 
@@ -734,11 +742,13 @@ if __name__ == "__main__":
                 original_prefix = run_config["logging"]["name_prefix"]
                 run_config["train"][
                     "run_id"
-                ] = f"{original_run_id}_run_{run_idx}_{device_idx}_gpu_{device.type}_{device.index}"
+                ] = f"{original_run_id}_run_{run_idx}_{device_idx}"
                 run_config["logging"][
                     "name_prefix"
-                ] = f"{original_prefix}_{original_run_id}_{run_idx}_run_{device_idx}_gpu_{device.index}"  # this is where the train model gets saved
-
+                ] = f"{original_prefix}_{original_run_id}_{run_idx}"  # this is where the train model gets saved
+                if seed is not None:
+                    run_config["train"]["random_seed"] = seed
+                
                 # 4. Create and start the process
                 p = mp.Process(target=train, args=(run_config, device, seed))
                 processes.append(p)
